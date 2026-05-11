@@ -1,0 +1,76 @@
+# ConfigMap for the tefca-gateway pod.
+# Apply with:  kubectl apply -f infra/k8s/00-configmap.yaml
+# Secrets (DB creds, HMAC, Cognito client-secret, Redis auth token) are in
+# separate ExternalSecret-managed k8s Secrets, not here.
+#
+# Variables that contain real values must be filled in before applying.
+# Variables already templated with ${NAME_PREFIX} are substituted by the
+# CI/CD pipeline via:  envsubst < 00-configmap.yaml | kubectl apply -f -
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tefca-gateway-config
+  namespace: tefca
+data:
+  # ---------------------------------------------------------------------------
+  # Spring profile — must be "prod" in all EKS deployments.
+  # ---------------------------------------------------------------------------
+  SPRING_PROFILES_ACTIVE: "prod"
+
+  # ---------------------------------------------------------------------------
+  # JVM tuning — cap heap at 70% of container limit; fast entropy source.
+  # ---------------------------------------------------------------------------
+  JAVA_TOOL_OPTIONS: >-
+    -XX:MaxRAMPercentage=70
+    -Djava.security.egd=file:/dev/./urandom
+
+  # ---------------------------------------------------------------------------
+  # Cognito — OIDC issuer for the admin OAuth2 login flow.
+  # Example:  https://cognito-idp.us-east-1.amazonaws.com/<user-pool-id>
+  # ---------------------------------------------------------------------------
+  COGNITO_ISSUER_URI: "https://cognito-idp.us-east-1.amazonaws.com/REPLACE_WITH_USER_POOL_ID"
+  COGNITO_CLIENT_ID:  "REPLACE_WITH_APP_CLIENT_ID"
+  COGNITO_AUDIENCE:   "REPLACE_WITH_APP_CLIENT_ID"
+
+  # ---------------------------------------------------------------------------
+  # OAuth2 resource server (partner-side JWT validation).
+  # These are the partner OIDC issuer / JWKS / audience values, NOT Cognito.
+  # ---------------------------------------------------------------------------
+  OAUTH2_ISSUER_URI:   "https://oidc.example.gov"
+  OAUTH2_JWK_SET_URI:  "https://oidc.example.gov/.well-known/jwks.json"
+  OAUTH2_AUDIENCE:     "tefca-gateway"
+
+  # ---------------------------------------------------------------------------
+  # Flyway — set to false to skip migrations on startup (e.g. read-only nodes).
+  # ---------------------------------------------------------------------------
+  FLYWAY_ENABLED: "true"
+
+  # ---------------------------------------------------------------------------
+  # Spring Session + Redis.
+  #
+  # DEFAULT: SESSION_STORE_TYPE is absent here → Spring uses in-memory sessions.
+  # In-memory sessions are safe and correct for a single-replica deployment.
+  #
+  # TO ENABLE REDIS (after Redis is confirmed reachable from the pod):
+  #   1. Uncomment SESSION_STORE_TYPE below and set it to "redis"
+  #   2. Confirm gateway-redis ExternalSecret is Applied and the secret exists:
+  #        kubectl -n tefca get secret gateway-redis
+  #   3. Confirm gateway-ssm secret has REDIS_HOST:
+  #        kubectl -n tefca get secret gateway-ssm -o jsonpath='{.data.REDIS_HOST}' | base64 -d
+  #   4. Smoke-test Redis reachability from inside the pod:
+  #        kubectl -n tefca exec deploy/tefca-gateway -- \
+  #          redis-cli -h $REDIS_HOST --tls -a $REDIS_AUTH_TOKEN PING
+  #
+  # SESSION_STORE_TYPE: "redis"
+  #
+  # REDIS_TLS_ENABLED defaults to "true" in application-prod.yml.
+  # If your ElastiCache cluster does NOT have in-transit encryption enabled,
+  # add:  REDIS_TLS_ENABLED: "false"
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # Logging — increase Spring Security log level temporarily when diagnosing
+  # auth issues.  Accepted values: ERROR, WARN, INFO, DEBUG, TRACE.
+  # ---------------------------------------------------------------------------
+  SECURITY_LOG_LEVEL: "WARN"

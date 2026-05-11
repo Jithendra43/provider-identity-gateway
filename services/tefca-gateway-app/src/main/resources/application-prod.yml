@@ -45,30 +45,37 @@ spring:
     locations: classpath:db/migration
 
   # ---------------------------------------------------------------------------
-  # Spring Session — store Cognito OAuth2 sessions in Redis so that JSESSIONID
-  # cookies survive pod restarts and rolling deployments.  Without this, any
-  # pod restart or rolling deploy immediately bounces every logged-in admin to
-  # the Cognito login page, and the dashboard polls see 401s that the frontend
-  # misinterprets as a lost session → redirect to /admin/welcome/.
+  # Spring Session — opt-in Redis persistence for Cognito admin sessions.
+  #
+  # Set SESSION_STORE_TYPE=redis in the pod ConfigMap ONLY after:
+  #   1. terraform apply has provisioned the ElastiCache cluster
+  #   2. gateway-redis ExternalSecret is Applied and the secret exists
+  #   3. A smoke-test (redis-cli PING) confirms the pod can reach Redis
+  #
+  # Until then, leave SESSION_STORE_TYPE unset (defaults to "none" = standard
+  # in-memory HttpSession).  In-memory sessions work fine for single-replica
+  # deployments and will not cause 500s on page refresh.
   # ---------------------------------------------------------------------------
   session:
-    store-type: redis
-    timeout: 24h           # Default 30 min is too short for an admin workflow
+    store-type: ${SESSION_STORE_TYPE:none}
+    timeout: 24h
     redis:
-      flush-mode: on-save  # Only write to Redis when the session is dirtied
+      flush-mode: on-save
       namespace: tefca:session
 
   # ---------------------------------------------------------------------------
-  # Redis (ElastiCache) — TLS + AUTH token.  Credentials come from
-  # ExternalSecrets (REDIS_HOST from SSM, REDIS_AUTH_TOKEN from Secrets Manager).
+  # Redis (ElastiCache) — TLS + AUTH token.
+  # REDIS_HOST and REDIS_AUTH_TOKEN are injected by the gateway-redis and
+  # gateway-ssm ExternalSecrets.  Defaults keep the app startable when Redis
+  # is not yet provisioned (SESSION_STORE_TYPE must also not be "redis" then).
   # ---------------------------------------------------------------------------
   data:
     redis:
-      host: ${REDIS_HOST}
-      port: 6379
-      password: ${REDIS_AUTH_TOKEN}
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_AUTH_TOKEN:}
       ssl:
-        enabled: true
+        enabled: ${REDIS_TLS_ENABLED:true}
       timeout: 2000ms
       connect-timeout: 2000ms
       lettuce:
