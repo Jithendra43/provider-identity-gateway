@@ -28,6 +28,19 @@ server:
 spring:
   application:
     name: tefca-gateway
+  # Exclude Spring Session auto-config until Redis is verified reachable.
+  # spring-session-data-redis is on the classpath (so we can flip it on
+  # later), but auto-config wires RedisSessionRepository even with
+  # spring.session.store-type=none. With an empty/partial Redis store the
+  # very first request blows up:
+  #   IllegalStateException: creationTime key must not be null
+  #   at RedisSessionMapper.handleMissingKey
+  # That bubbles to a 500 on /admin/welcome/, the proxy hops, and the
+  # Cognito callback. Excluding the auto-config falls back to Tomcat's
+  # in-memory HttpSession, which is fine for our single-replica pod.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
   lifecycle:
     timeout-per-shutdown-phase: 25s
   jpa:
