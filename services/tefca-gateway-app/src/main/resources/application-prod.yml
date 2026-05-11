@@ -28,19 +28,6 @@ server:
 spring:
   application:
     name: tefca-gateway
-  # Exclude Spring Session auto-config until Redis is verified reachable.
-  # spring-session-data-redis is on the classpath (so we can flip it on
-  # later), but auto-config wires RedisSessionRepository even with
-  # spring.session.store-type=none. With an empty/partial Redis store the
-  # very first request blows up:
-  #   IllegalStateException: creationTime key must not be null
-  #   at RedisSessionMapper.handleMissingKey
-  # That bubbles to a 500 on /admin/welcome/, the proxy hops, and the
-  # Cognito callback. Excluding the auto-config falls back to Tomcat's
-  # in-memory HttpSession, which is fine for our single-replica pod.
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
   lifecycle:
     timeout-per-shutdown-phase: 25s
   jpa:
@@ -69,23 +56,31 @@ spring:
     locations: classpath:db/migration
 
   # ---------------------------------------------------------------------------
-  # Spring Session — opt-in Redis persistence for Cognito admin sessions.
+  # Spring Session — Redis-backed for Cognito admin sessions.
   #
-  # Set SESSION_STORE_TYPE=redis in the pod ConfigMap ONLY after:
-  #   1. terraform apply has provisioned the ElastiCache cluster
-  #   2. gateway-redis ExternalSecret is Applied and the secret exists
-  #   3. A smoke-test (redis-cli PING) confirms the pod can reach Redis
+  # Default in prod is "redis" (REDIS_HOST is always wired by the
+  # gateway-redis ExternalSecret). To temporarily fall back to in-memory
+  # sessions during a Redis incident, set SESSION_STORE_TYPE=none in the
+  # ConfigMap and roll the deployment.
   #
-  # Until then, leave SESSION_STORE_TYPE unset (defaults to "none" = standard
-  # in-memory HttpSession). In-memory sessions work fine for single-replica
-  # deployments and will not cause 500s on page refresh.
+  # Stale or partially written session hashes used to crash every request
+  # with `IllegalStateException: creationTime key must not be null`. That is
+  # now neutralized by RedisSessionConfig, which installs a resilient
+  # RedisSessionMapper that drops malformed sessions and forces a fresh one.
   # ---------------------------------------------------------------------------
   session:
-    store-type: ${SESSION_STORE_TYPE:none}
+    store-type: ${SESSION_STORE_TYPE:redis}
     timeout: 24h
     redis:
       flush-mode: on-save
+      save-mode: on-set-attribute
+      repository-type: default
       namespace: tefca:session
+      # ElastiCache disallows CONFIG commands; the default "notify" action
+      # would crash boot with "ERR unknown command 'CONFIG'". `none` skips
+      # the CONFIG SET call entirely. Safe with repository-type=default
+      # since that repo doesn't need keyspace notifications.
+      configure-action: none
 
   # ---------------------------------------------------------------------------
   # Redis (ElastiCache) — TLS + AUTH token.
