@@ -1,89 +1,101 @@
-# C-HIT Provider Identity Gateway — production AWS deployment
+# C-HIT Provider Identity Gateway — infrastructure overview
 
-**DevOps / Terraform map:** see [`infra/terraform/DEVOPS-TERRAFORM-HANDOFF.md`](terraform/DEVOPS-TERRAFORM-HANDOFF.md) (modules, `envs/prod` wiring, apply order).
+DevOps and Terraform implementation details are documented in [infra/terraform/DEVOPS-TERRAFORM-HANDOFF.md](terraform/DEVOPS-TERRAFORM-HANDOFF.md).
 
-Cost-aware **Amazon EKS** (Graviton managed node group) behind the existing **ALB**
-(mTLS + admin listener). Pods register to the same ALB target groups via the
-**AWS Load Balancer Controller** (`TargetGroupBinding`).
+This repository uses a Terraform-first AWS deployment model with three infrastructure layers under [infra](.):
 
-## Architecture
+- [infra/terraform](terraform): base platform infrastructure (network, EKS cluster, ALB, ACM, RDS, IAM/IRSA, Route53, Cognito, secrets wiring)
+- [infra/eks](eks): EKS add-on stack managed by Terraform (AWS Load Balancer Controller, External Secrets, CoreDNS Fargate patch, Fargate logging config)
+- [infra/k8s](k8s): workload Kubernetes manifests applied during deploy (namespace, service account, external secrets, service, target group bindings, deployment)
 
-```
+## Current architecture
+
+```text
 Internet
-   │
-   ├── ALB :443  (mTLS verify, partner trust store) ──┐
-   └── ALB :8444 (Cognito OIDC, MFA-on)               │
-                                                      ▼
-                              ┌─────────────────────────────────────────┐
-                              │  EKS — Deployment (ARM64 image)         │
-                              │  ─ TefcaGatewayApplication.jar           │
-                              │     (same fat-jar layout as before)      │
-                              │  TargetGroupBinding → existing ALB TGs   │
-                              └────────┬───────────────┬────────────────┘
-                                       │               │
-                                  RDS pg t4g.micro    S3 audit (WORM 6yr)
-                                  Single-AZ           SSE-KMS, Glacier@1y
+   |
+   |- ALB :443  (mTLS verify, partner ingress)
+   |- ALB :8444 (HTTPS admin UI, Cognito OIDC)
+   |
+   v
+EKS Fargate profile (no EC2 node groups)
+   |- tefca-gateway Deployment (linux/amd64 image)
+   |- TargetGroupBinding -> existing ALB target groups
+   |
+   |- RDS PostgreSQL
+   |- S3 audit bucket
+   |- Secrets Manager + SSM via External Secrets Operator
 ```
 
-## Deployment workflow (phased)
+Important listener behavior:
 
-1. **Bootstrap state backend (one-off, idempotent)**:
-   ```bash
-   AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...  AWS_DEFAULT_REGION=us-east-1 \
-       ./infra/bootstrap.sh
-   ```
-   Creates `tefca-gw-tfstate-<accountId>` (versioned, SSE-AES256, all-public-blocked),
-   the `tefca-gw-tflock` DynamoDB table, writes `infra/terraform/envs/prod/backend.hcl`,
-   and prints a fresh HMAC secret. Save the secret in your password manager.
-2. **First-time secrets**: `export TF_VAR_hmac_secret_initial=<value-from-step-1>`
-3. **Terraform (VPC, ALB, RDS, EKS cluster, IRSA, …)**:
-   ```bash
-   cd infra/terraform/envs/prod
-   cp terraform.tfvars.example terraform.tfvars   # edit domains, github org/repo
-   terraform init -backend-config=backend.hcl
-   terraform plan -out=tfplan
-   terraform apply tfplan
-   ```
-   Note `terraform output` for `eks_irsa_*_role_arn`, `vpc_id`, and `eks_cluster_name`.
-4. **Phase — Helm add-ons (once per cluster)** after the cluster is `ACTIVE`:
-   ```bash
-   export CLUSTER_NAME=tefca-gw-prod
-   export AWS_REGION=us-east-1
-   export VPC_ID=$(terraform output -raw vpc_id)
-   export LBC_ROLE_ARN=$(terraform output -raw eks_irsa_lbc_role_arn)
-   export ESO_ROLE_ARN=$(terraform output -raw eks_irsa_external_secrets_role_arn)
-   chmod +x ../../../eks/install-addons.sh
-   ../../../eks/install-addons.sh
-   ```
-5. **Phase — Kubernetes manifests**: GitHub Actions `deploy.yml` applies `infra/k8s/`
-   (namespace, IRSA `ServiceAccount`, `ClusterSecretStore`, `ExternalSecret`, `Deployment`,
-   `Service`, `TargetGroupBinding`) and rolls the image. First pipeline run needs a
-   pushed image (build step in the same workflow).
+- Port 443 is mTLS-protected by design and will reject normal browser sessions without a trusted client certificate.
+- Port 8444 is the browser/admin endpoint and should be used for admin sign-in flows.
 
-If your Terraform `name_prefix` / cluster name is **not** `tefca-gw-prod`, update
-`NAME_PREFIX` / `EKS_CLUSTER` in `.github/workflows/deploy.yml` and the defaults in
-`infra/k8s/*.yaml` accordingly.
+## Folder responsibilities
 
-## Security posture (TEFCA + HIPAA)
+### [infra/terraform](terraform)
 
-- **mTLS partner ingress**: ALB native mutual auth, trust store rejects expired client certs. App still validates `X-Amzn-Mtls-Clientcert` thumbprint against DB whitelist.
-- **JWT (RS256)**: Validated against partner JWKS; `tefca-gateway` audience pinned.
-- **HMAC service-to-service**: Enforced even on loopback; if we ever scale to >1 task, no code change needed.
-- **Encryption at rest**: KMS CMK with annual rotation on RDS, S3, Secrets, SSM, CloudWatch Logs.
-- **Encryption in transit**: TLS 1.2 minimum (`ELBSecurityPolicy-TLS13-1-2-2021-06`); `rds.force_ssl=1`.
-- **Audit immutability**: S3 Object Lock COMPLIANCE 6 yr (TEFCA + HIPAA).
-- **Least privilege**: Gateway **IRSA** role can `s3:PutObject` only to audit bucket; GitHub deploy role is scoped to ECR, EKS describe, ELB describe TG, SSM JWT params, and Cognito read for CD.
-- **Network isolation**: Nodes and RDS in private subnets; egress via VPC endpoints + single NAT instance.
-- **Admin MFA**: Cognito TOTP enforced; 60-minute access tokens.
-- **WAF**: AWS managed Common + KnownBadInputs + 2000-RPM rate limit.
-- **Container hardening**: Distroless nonroot where used in the image; drop Linux capabilities in Kubernetes `securityContext` as you tighten the chart.
+Base AWS stack:
 
-## Future toggles (one-line flips when needs grow)
+- VPC, subnets, security groups
+- EKS cluster and Fargate profile
+- ALB listeners and target groups
+- ACM certificates and trust store
+- Cognito user pool, client, and hosted UI domain
+- RDS, S3, IAM, KMS, Route53, alerting
 
-| Need                          | Change                                        |
-|-------------------------------|-----------------------------------------------|
-| HA database                   | `rds.multi_az = true`                         |
-| Multi-AZ NAT                  | `network.enable_nat_instance = false` (uses managed NAT GW) |
-| Distributed cache             | Add `module "elasticache"` and set `tefca.replay.backend=redis` |
-| Decompose to microservices    | Add Deployments/Services in EKS; point `tefca.services.*-url` at cluster DNS or internal ALB |
-| FIPS 140-3                    | Switch base image to `eclipse-temurin:21-jdk` + BouncyCastle FIPS provider |
+Primary entrypoint:
+
+- [infra/terraform/envs/prod/main.tf](terraform/envs/prod/main.tf)
+
+### [infra/eks](eks)
+
+Terraform-managed cluster add-ons:
+
+- AWS Load Balancer Controller (Helm)
+- External Secrets Operator (Helm)
+- CoreDNS scheduling patch for Fargate-only clusters
+- Fargate logging namespace/configmap
+
+Primary entrypoint:
+
+- [infra/eks/main.tf](eks/main.tf)
+
+### [infra/k8s](k8s)
+
+Runtime Kubernetes resources used by deployment workflow:
+
+- Namespace and service account
+- ClusterSecretStore and ExternalSecret resources
+- Service and TargetGroupBinding resources
+- tefca-gateway Deployment manifest template
+
+Key files:
+
+- [infra/k8s/00-namespace.yaml](k8s/00-namespace.yaml)
+- [infra/k8s/01-serviceaccount.yaml](k8s/01-serviceaccount.yaml)
+- [infra/k8s/02-clustersecretstores.yaml](k8s/02-clustersecretstores.yaml)
+- [infra/k8s/03-externalsecret-db.yaml](k8s/03-externalsecret-db.yaml)
+- [infra/k8s/04-externalsecret-ssm.yaml](k8s/04-externalsecret-ssm.yaml)
+- [infra/k8s/05-service.yaml](k8s/05-service.yaml)
+- [infra/k8s/06-targetgroupbindings.yaml](k8s/06-targetgroupbindings.yaml)
+- [infra/k8s/07-deployment.yaml](k8s/07-deployment.yaml)
+
+## Apply order
+
+1. Bootstrap Terraform backend once with [infra/bootstrap.sh](bootstrap.sh).
+2. Apply base platform in [infra/terraform/envs/prod](terraform/envs/prod).
+3. Apply add-ons in [infra/eks](eks).
+4. Run deploy pipeline to apply [infra/k8s](k8s) manifests and roll workload image.
+
+## CI/CD workflows
+
+- [ .github/workflows/infra-plan.yml ](../.github/workflows/infra-plan.yml): terraform plan for base + add-ons
+- [ .github/workflows/infra-apply.yml ](../.github/workflows/infra-apply.yml): terraform apply for base + add-ons
+- [ .github/workflows/deploy.yml ](../.github/workflows/deploy.yml): image build/push and Kubernetes deployment
+
+## Operational notes
+
+- If browser sign-in reports redirect mismatch, verify Cognito callback/logout URLs include both host-only and host:8444 values.
+- If External Secrets fail with DNS errors, verify CoreDNS rollout in kube-system and Fargate compute-type patch state.
+- If pods show image exec format errors, verify runtime image and Docker build are linux/amd64.

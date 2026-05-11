@@ -64,7 +64,14 @@ public class AdminAuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, Object>> logout(HttpServletResponse response) {
+    public ResponseEntity<Map<String, Object>> logout(HttpServletRequest request,
+                                                      HttpServletResponse response) {
+        // Invalidate the server-side HTTP session (JSESSIONID) so that OIDC
+        // (Cognito) sessions are fully terminated, not just the mock cookie.
+        jakarta.servlet.http.HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
         // Hardened logout cookie: HttpOnly + Secure + SameSite=Strict, MaxAge=0.
         ResponseCookie cookie = ResponseCookie.from(properties.getCookieName(), "")
                 .path("/")

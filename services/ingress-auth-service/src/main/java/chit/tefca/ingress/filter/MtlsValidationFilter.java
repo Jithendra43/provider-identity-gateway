@@ -59,6 +59,8 @@ public class MtlsValidationFilter extends OncePerRequestFilter {
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/admin")
                 || path.startsWith("/api/admin/")
+                || path.startsWith("/login/oauth2/")
+                || path.startsWith("/oauth2/")
                 || path.equals("/favicon.ico");
     }
 

@@ -94,6 +94,10 @@ jobs:
             --name "/${NAME_PREFIX}/jwt/audience" \
             --query Parameter.Value --output text)"
 
+          JWT_JWK_SET_URI="$(aws ssm get-parameter \
+            --name "/${NAME_PREFIX}/jwt/jwk-set-uri" \
+            --query Parameter.Value --output text)"
+
           POOL_ID="$(aws cognito-idp list-user-pools --max-results 50 \
             --query "UserPools[?Name=='${NAME_PREFIX}-admin'].Id | [0]" --output text)"
 
@@ -125,6 +129,7 @@ jobs:
             echo "tgw_admin_arn=$TGW_ADMIN_ARN"
             echo "jwt_issuer_uri=$JWT_ISSUER_URI"
             echo "jwt_audience=$JWT_AUDIENCE"
+            echo "jwt_jwk_set_uri=$JWT_JWK_SET_URI"
             echo "cognito_issuer_uri=https://cognito-idp.${AWS_REGION}.amazonaws.com/${POOL_ID}"
             echo "cognito_client_id=$CLIENT_ID"
             echo "cognito_domain=$COGNITO_DOMAIN"
@@ -137,27 +142,27 @@ jobs:
 
       # ── 8. ConfigMap — non-sensitive runtime config ────────────────────────
       - name: Apply ConfigMap
+        env:
+          AUDIT_BUCKET: ${NAME_PREFIX}-audit
+          COGNITO_ISSUER_URI: ${{ steps.cfg.outputs.cognito_issuer_uri }}
+          COGNITO_CLIENT_ID: ${{ steps.cfg.outputs.cognito_client_id }}
+          COGNITO_AUDIENCE: ${{ steps.cfg.outputs.cognito_client_id }}
+          COGNITO_DOMAIN: ${{ steps.cfg.outputs.cognito_domain }}
+          OAUTH2_ISSUER_URI: ${{ steps.cfg.outputs.jwt_issuer_uri }}
+          OAUTH2_JWK_SET_URI: ${{ steps.cfg.outputs.jwt_jwk_set_uri }}
+          OAUTH2_AUDIENCE: ${{ steps.cfg.outputs.jwt_audience }}
+          JWT_ISSUER_URI: ${{ steps.cfg.outputs.jwt_issuer_uri }}
+          JWT_AUDIENCE: ${{ steps.cfg.outputs.jwt_audience }}
+          TEFCA_ALERTS_SNS_TOPIC_ARN: ${{ steps.cfg.outputs.sns_topic }}
         run: |
-          kubectl create configmap tefca-gateway-config \
-            -n "$K8S_NAMESPACE" --dry-run=client -o yaml \
-            --from-literal=SPRING_PROFILES_ACTIVE=prod \
-            --from-literal=AWS_REGION="$AWS_REGION" \
-            --from-literal=AUDIT_BUCKET="${NAME_PREFIX}-audit" \
-            --from-literal=JWT_ISSUER_URI="${{ steps.cfg.outputs.jwt_issuer_uri }}" \
-            --from-literal=JWT_AUDIENCE="${{ steps.cfg.outputs.jwt_audience }}" \
-            --from-literal=COGNITO_ISSUER_URI="${{ steps.cfg.outputs.cognito_issuer_uri }}" \
-            --from-literal=COGNITO_CLIENT_ID="${{ steps.cfg.outputs.cognito_client_id }}" \
-            --from-literal=COGNITO_AUDIENCE="${{ steps.cfg.outputs.cognito_client_id }}" \
-            --from-literal=COGNITO_DOMAIN="${{ steps.cfg.outputs.cognito_domain }}" \
-            --from-literal=TEFCA_ALERTS_SNS_TOPIC_ARN="${{ steps.cfg.outputs.sns_topic }}" \
-            | kubectl apply -f -
+          sudo apt-get update -qq && sudo apt-get install -y gettext-base
+          envsubst < infra/k8s/00-configmap.yaml | kubectl apply -f -
 
       # ── 9. IRSA service account ────────────────────────────────────────────
       - name: Apply ServiceAccount
         env:
           POD_ROLE_ARN: ${{ steps.cfg.outputs.pod_role_arn }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y gettext-base
           envsubst < infra/k8s/01-serviceaccount.yaml | kubectl apply -f -
 
       # ── 10. ExternalSecrets infrastructure ────────────────────────────────
@@ -231,4 +236,4 @@ jobs:
           envsubst < infra/k8s/07-deployment.yaml        | kubectl apply -f -
           envsubst < infra/k8s/06-targetgroupbindings.yaml | kubectl apply -f -
           kubectl rollout status deployment/"$DEPLOYMENT_NAME" \
-            -n "$K8S_NAMESPACE" --timeout=600s
+            -n "$K8S_NAMESPACE" --timeout=600s  

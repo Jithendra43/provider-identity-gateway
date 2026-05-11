@@ -13,6 +13,17 @@ server:
     max-threads: 200
     accesslog:
       enabled: false   # access logs already in ALB
+  servlet:
+    session:
+      cookie:
+        # SameSite=Lax is required for the Cognito OAuth2 callback to work.
+        # The callback is a cross-site top-level GET redirect (from
+        # cognito.amazonaws.com back to the gateway). SameSite=Strict blocks
+        # the JSESSIONID on that redirect, causing OAuth2 state-mismatch
+        # failures and the login-redirect loop.
+        same-site: lax
+        http-only: true
+        secure: true
 
 spring:
   application:
@@ -53,7 +64,7 @@ spring:
   #   3. A smoke-test (redis-cli PING) confirms the pod can reach Redis
   #
   # Until then, leave SESSION_STORE_TYPE unset (defaults to "none" = standard
-  # in-memory HttpSession).  In-memory sessions work fine for single-replica
+  # in-memory HttpSession). In-memory sessions work fine for single-replica
   # deployments and will not cause 500s on page refresh.
   # ---------------------------------------------------------------------------
   session:
@@ -66,7 +77,7 @@ spring:
   # ---------------------------------------------------------------------------
   # Redis (ElastiCache) — TLS + AUTH token.
   # REDIS_HOST and REDIS_AUTH_TOKEN are injected by the gateway-redis and
-  # gateway-ssm ExternalSecrets.  Defaults keep the app startable when Redis
+  # gateway-ssm ExternalSecrets. Defaults keep the app startable when Redis
   # is not yet provisioned (SESSION_STORE_TYPE must also not be "redis" then).
   # ---------------------------------------------------------------------------
   data:
@@ -247,6 +258,13 @@ management:
   health:
     db:
       enabled: true
+    redis:
+      # Disabled until Redis session is confirmed reachable from the pod.
+      # Even with spring-session-data-redis on the classpath, Spring Boot
+      # auto-configures a RedisHealthIndicator that pings Redis on every
+      # /actuator/health call. If Redis is unreachable this marks the service
+      # DOWN (503). Set REDIS_HEALTH_ENABLED=true once ElastiCache is live.
+      enabled: ${REDIS_HEALTH_ENABLED:false}
 
 # -----------------------------------------------------------------------------
 # Logging — JSON to stdout for CloudWatch Logs (single log group, 14d retention)

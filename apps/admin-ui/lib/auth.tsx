@@ -116,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetch('/api/admin/auth/logout', { method: 'POST', credentials: 'include' });
     setOperator(null);
     if (typeof window !== 'undefined') {
-      window.location.assign('/admin/login/');
+      window.location.assign('/admin/welcome/');
     }
   };
 

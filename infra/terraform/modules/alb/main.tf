@@ -115,6 +115,40 @@ resource "aws_wafv2_web_acl" "this" {
       managed_rule_group_statement {
         vendor_name = "AWS"
         name        = "AWSManagedRulesCommonRuleSet"
+
+        # Admin proxy mutation requests can trigger false positives on
+        # URL-like values in JSON bodies/query args. Keep visibility by
+        # counting these rules instead of blocking while retaining all
+        # other protections in block mode.
+        rule_action_override {
+          name = "GenericRFI_BODY"
+          action_to_use {
+            count {}
+          }
+        }
+
+        rule_action_override {
+          name = "EC2MetaDataSSRF_BODY"
+          action_to_use {
+            count {}
+          }
+        }
+
+        rule_action_override {
+          name = "GenericRFI_QUERYARGUMENTS"
+          action_to_use {
+            count {}
+          }
+        }
+
+        # Enable only if logs prove legitimate requests are blocked by
+        # body size inspection.
+        # rule_action_override {
+        #   name = "SizeRestrictions_BODY"
+        #   action_to_use {
+        #     count {}
+        #   }
+        # }
       }
     }
     visibility_config {

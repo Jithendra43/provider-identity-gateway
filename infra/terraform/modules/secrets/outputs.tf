@@ -20,6 +20,7 @@ output "all_arns" {
     aws_ssm_parameter.jwt_jwk_set_uri.arn,
     aws_ssm_parameter.jwt_audience.arn,
     aws_ssm_parameter.cognito_client_secret.arn,
+    aws_ssm_parameter.redis_host.arn,
   ]
 }
 
