@@ -87,4 +87,13 @@ resource "aws_ssm_parameter" "cognito_client_secret" {
   tier   = "Standard"
 }
 
+# Redis primary endpoint address — plain String (not sensitive; the AUTH
+# token is in Secrets Manager).  The gateway pod reads this via ExternalSecrets
+# and passes it to spring.data.redis.host.
+resource "aws_ssm_parameter" "redis_host" {
+  name  = "/${var.name_prefix}/redis/host"
+  type  = "String"
+  value = var.redis_endpoint
+}
+
 

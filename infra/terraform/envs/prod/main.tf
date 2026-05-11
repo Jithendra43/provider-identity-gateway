@@ -204,6 +204,9 @@ module "secrets" {
   jwt_jwk_set_uri       = var.jwt_jwk_set_uri
   jwt_audience          = var.jwt_audience
   cognito_client_secret = module.cognito.client_secret
+  # Redis primary endpoint — stored in SSM so gateway-ssm ExternalSecret can
+  # expose REDIS_HOST to the pod without requiring a Terraform output in CI.
+  redis_endpoint        = module.redis.address
 }
 
 # -----------------------------------------------------------------------------

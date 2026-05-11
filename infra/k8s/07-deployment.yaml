@@ -38,6 +38,8 @@ spec:
                 name: gateway-hmac
             - secretRef:
                 name: gateway-ssm
+            - secretRef:
+                name: gateway-redis
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

@@ -18,6 +18,12 @@ output "address" {
 	value       = aws_elasticache_replication_group.this.primary_endpoint_address
 }
 
+# Alias used by the secrets module to populate /${name_prefix}/redis/host in SSM.
+output "host" {
+	description = "Redis primary endpoint hostname (no port). Alias for address."
+	value       = aws_elasticache_replication_group.this.primary_endpoint_address
+}
+
 output "port" {
 	description = "Redis port."
 	value       = aws_elasticache_replication_group.this.port

@@ -49,3 +49,8 @@ variable "cognito_client_secret" {
   type        = string
   sensitive   = true
 }
+
+variable "redis_endpoint" {
+  description = "Redis primary endpoint address (host only, no port). Stored in SSM so the gateway pod can resolve it at startup."
+  type        = string
+}

@@ -201,7 +201,16 @@ public class AppSecurityConfig {
                     .maxAgeInSeconds(31536000))
             )
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(SecurityConstants.ACTUATOR_PREFIX + "/health/**").permitAll()
+                // PathPatternParser's /** does NOT match the bare path without a trailing
+                // segment. Explicitly add the bare /actuator/health path so that the
+                // dashboard's health-check calls (which hit /actuator/health with no
+                // trailing slash) are permitted without authentication. Without this,
+                // the bare path falls through to /actuator/** → authenticated() and the
+                // anonymous loopback request gets 401, which the SPA misinterprets as a
+                // session expiry and redirects the user to the welcome/login page.
+                .requestMatchers(
+                    SecurityConstants.ACTUATOR_PREFIX + "/health",
+                    SecurityConstants.ACTUATOR_PREFIX + "/health/**").permitAll()
                 .requestMatchers(SecurityConstants.ACTUATOR_PREFIX + "/info").permitAll()
                 .requestMatchers(SecurityConstants.ACTUATOR_PREFIX + "/prometheus").permitAll()
                 .requestMatchers(SecurityConstants.ACTUATOR_PREFIX + "/**").authenticated()

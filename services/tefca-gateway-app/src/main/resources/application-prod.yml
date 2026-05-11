@@ -44,6 +44,40 @@ spring:
     validate-on-migrate: false
     locations: classpath:db/migration
 
+  # ---------------------------------------------------------------------------
+  # Spring Session — store Cognito OAuth2 sessions in Redis so that JSESSIONID
+  # cookies survive pod restarts and rolling deployments.  Without this, any
+  # pod restart or rolling deploy immediately bounces every logged-in admin to
+  # the Cognito login page, and the dashboard polls see 401s that the frontend
+  # misinterprets as a lost session → redirect to /admin/welcome/.
+  # ---------------------------------------------------------------------------
+  session:
+    store-type: redis
+    timeout: 24h           # Default 30 min is too short for an admin workflow
+    redis:
+      flush-mode: on-save  # Only write to Redis when the session is dirtied
+      namespace: tefca:session
+
+  # ---------------------------------------------------------------------------
+  # Redis (ElastiCache) — TLS + AUTH token.  Credentials come from
+  # ExternalSecrets (REDIS_HOST from SSM, REDIS_AUTH_TOKEN from Secrets Manager).
+  # ---------------------------------------------------------------------------
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: 6379
+      password: ${REDIS_AUTH_TOKEN}
+      ssl:
+        enabled: true
+      timeout: 2000ms
+      connect-timeout: 2000ms
+      lettuce:
+        shutdown-timeout: 200ms
+        pool:
+          max-active: 8
+          max-idle: 4
+          min-idle: 1
+
   # OAuth2 — both resource server (API JWT) AND client (admin Cognito SSO)
   security:
     oauth2:
