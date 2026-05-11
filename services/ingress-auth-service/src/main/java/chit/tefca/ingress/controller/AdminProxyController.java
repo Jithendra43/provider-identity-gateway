@@ -12,6 +12,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,6 +52,8 @@ public class AdminProxyController {
 
     private final AdminProperties properties;
     private final WebClient.Builder webClientBuilder;
+    private final org.springframework.beans.factory.ObjectProvider<OAuth2AuthorizedClientService>
+            authorizedClientServiceProvider;
 
     @Value("${tefca.hmac.secret:}")
     private String hmacSecret;
@@ -109,6 +114,21 @@ public class AdminProxyController {
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();
             if (auth instanceof JwtAuthenticationToken jwtAuth) {
                 spec.header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtAuth.getToken().getTokenValue());
+            } else if (auth instanceof OAuth2AuthenticationToken oauthAuth) {
+                // Cognito SSO session: pull the access token from the
+                // OAuth2AuthorizedClientService and forward it. Without this
+                // any downstream chain that demands a Bearer (e.g. the
+                // partner-token resource server on /api/v1/tefca/**) will
+                // 401 the loopback hop and the proxy returns 500.
+                OAuth2AuthorizedClientService svc = authorizedClientServiceProvider.getIfAvailable();
+                if (svc != null) {
+                    OAuth2AuthorizedClient authorizedClient = svc.loadAuthorizedClient(
+                            oauthAuth.getAuthorizedClientRegistrationId(), oauthAuth.getName());
+                    if (authorizedClient != null && authorizedClient.getAccessToken() != null) {
+                        spec.header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + authorizedClient.getAccessToken().getTokenValue());
+                    }
+                }
             }
         }
 
@@ -143,12 +163,19 @@ public class AdminProxyController {
                                     });
                                     return rb.body(b);
                                 }))
-                .onErrorResume(WebClientResponseException.class, ex -> Mono.just(
-                        ResponseEntity.status(ex.getStatusCode().value())
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .body(ex.getResponseBodyAsByteArray())))
+                .onErrorResume(WebClientResponseException.class, ex -> {
+                    log.warn("Admin proxy {} {} -> {} returned {}: {}",
+                            method, fullUri, targetUrl, ex.getStatusCode(),
+                            ex.getResponseBodyAsString());
+                    return Mono.just(
+                            ResponseEntity.status(ex.getStatusCode().value())
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .body(ex.getResponseBodyAsByteArray()));
+                })
                 .onErrorResume(Exception.class, ex -> {
-                    log.warn("Admin proxy upstream error: {}", ex.getMessage());
+                    log.warn("Admin proxy {} {} -> {} failed: {}: {}",
+                            method, fullUri, targetUrl,
+                            ex.getClass().getSimpleName(), ex.getMessage());
                     Map<String, Object> err = new HashMap<>();
                     err.put("error", "upstream_unreachable");
                     err.put("detail", ex.getMessage());
