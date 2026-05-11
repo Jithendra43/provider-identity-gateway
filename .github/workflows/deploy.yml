@@ -1,0 +1,234 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'services/**'
+      - 'apps/admin-ui/**'
+      - 'infra/k8s/**'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION:            ${{ secrets.AWS_REGION }}
+  ECR_REPO:              ${{ secrets.ECR_REPO }}
+  EKS_CLUSTER:           ${{ secrets.EKS_CLUSTER }}
+  NAME_PREFIX:           ${{ secrets.NAME_PREFIX }}
+  K8S_NAMESPACE:         tefca
+  DEPLOYMENT_NAME:       tefca-gateway
+  KUBECTL_VERSION:       v1.31.0
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── 2. AWS credentials via OIDC (no long-lived keys) ──────────────────
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region:     ${{ env.AWS_REGION }}
+
+      # ── 3. ECR login ───────────────────────────────────────────────────────
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      # ── 4. Build & push single fat-JAR image (amd64 for EKS Fargate) ─────
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push image
+        uses: docker/build-push-action@v6
+        with:
+          context:    .
+          file:       services/tefca-gateway-app/Dockerfile
+          platforms:  linux/amd64
+          push:       true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+          provenance: false
+          sbom:       false
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      # ── 5. kubectl ─────────────────────────────────────────────────────────
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Configure kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+
+      # ── 6. Resolve runtime values from AWS ────────────────────────────────
+      - name: Resolve AWS runtime config
+        id: cfg
+        run: |
+          set -euo pipefail
+
+          POD_ROLE_ARN="$(aws iam get-role \
+            --role-name "${EKS_CLUSTER}-gateway-pod" \
+            --query Role.Arn --output text)"
+
+          TGW_GW_ARN="$(aws elbv2 describe-target-groups \
+            --names "${NAME_PREFIX}-gw" \
+            --query 'TargetGroups[0].TargetGroupArn' --output text)"
+
+          TGW_ADMIN_ARN="$(aws elbv2 describe-target-groups \
+            --names "${NAME_PREFIX}-admin" \
+            --query 'TargetGroups[0].TargetGroupArn' --output text)"
+
+          JWT_ISSUER_URI="$(aws ssm get-parameter \
+            --name "/${NAME_PREFIX}/jwt/issuer-uri" \
+            --query Parameter.Value --output text)"
+
+          JWT_AUDIENCE="$(aws ssm get-parameter \
+            --name "/${NAME_PREFIX}/jwt/audience" \
+            --query Parameter.Value --output text)"
+
+          POOL_ID="$(aws cognito-idp list-user-pools --max-results 50 \
+            --query "UserPools[?Name=='${NAME_PREFIX}-admin'].Id | [0]" --output text)"
+
+          CLIENT_ID="$(aws cognito-idp list-user-pool-clients \
+            --user-pool-id "$POOL_ID" --max-results 60 \
+            --query "UserPoolClients[?ClientName=='${NAME_PREFIX}-admin-client'].ClientId | [0]" --output text)"
+          if [ -z "$CLIENT_ID" ] || [ "$CLIENT_ID" = "None" ]; then
+            echo "ERROR: Could not find Cognito app client named ${NAME_PREFIX}-admin-client in pool $POOL_ID" >&2
+            aws cognito-idp list-user-pool-clients --user-pool-id "$POOL_ID" --max-results 60 >&2 || true
+            exit 1
+          fi
+
+          COGNITO_DOMAIN="$(aws cognito-idp describe-user-pool \
+            --user-pool-id "$POOL_ID" \
+            --query 'UserPool.Domain' --output text)"
+
+          SNS_TOPIC="$(aws sns list-topics \
+            --query "Topics[?contains(TopicArn,\`${NAME_PREFIX}-alerts\`)].TopicArn | [0]" \
+            --output text)"
+
+          # Mask sensitive values
+          echo "::add-mask::$POD_ROLE_ARN"
+          echo "::add-mask::$CLIENT_ID"
+
+          # Export as step outputs
+          {
+            echo "pod_role_arn=$POD_ROLE_ARN"
+            echo "tgw_gw_arn=$TGW_GW_ARN"
+            echo "tgw_admin_arn=$TGW_ADMIN_ARN"
+            echo "jwt_issuer_uri=$JWT_ISSUER_URI"
+            echo "jwt_audience=$JWT_AUDIENCE"
+            echo "cognito_issuer_uri=https://cognito-idp.${AWS_REGION}.amazonaws.com/${POOL_ID}"
+            echo "cognito_client_id=$CLIENT_ID"
+            echo "cognito_domain=$COGNITO_DOMAIN"
+            echo "sns_topic=${SNS_TOPIC:-}"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── 7. Apply namespace (idempotent) ────────────────────────────────────
+      - name: Apply namespace
+        run: kubectl apply -f infra/k8s/00-namespace.yaml
+
+      # ── 8. ConfigMap — non-sensitive runtime config ────────────────────────
+      - name: Apply ConfigMap
+        run: |
+          kubectl create configmap tefca-gateway-config \
+            -n "$K8S_NAMESPACE" --dry-run=client -o yaml \
+            --from-literal=SPRING_PROFILES_ACTIVE=prod \
+            --from-literal=AWS_REGION="$AWS_REGION" \
+            --from-literal=AUDIT_BUCKET="${NAME_PREFIX}-audit" \
+            --from-literal=JWT_ISSUER_URI="${{ steps.cfg.outputs.jwt_issuer_uri }}" \
+            --from-literal=JWT_AUDIENCE="${{ steps.cfg.outputs.jwt_audience }}" \
+            --from-literal=COGNITO_ISSUER_URI="${{ steps.cfg.outputs.cognito_issuer_uri }}" \
+            --from-literal=COGNITO_CLIENT_ID="${{ steps.cfg.outputs.cognito_client_id }}" \
+            --from-literal=COGNITO_AUDIENCE="${{ steps.cfg.outputs.cognito_client_id }}" \
+            --from-literal=COGNITO_DOMAIN="${{ steps.cfg.outputs.cognito_domain }}" \
+            --from-literal=TEFCA_ALERTS_SNS_TOPIC_ARN="${{ steps.cfg.outputs.sns_topic }}" \
+            | kubectl apply -f -
+
+      # ── 9. IRSA service account ────────────────────────────────────────────
+      - name: Apply ServiceAccount
+        env:
+          POD_ROLE_ARN: ${{ steps.cfg.outputs.pod_role_arn }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y gettext-base
+          envsubst < infra/k8s/01-serviceaccount.yaml | kubectl apply -f -
+
+      # ── 10. ExternalSecrets infrastructure ────────────────────────────────
+      - name: Apply ClusterSecretStores & ExternalSecrets
+        run: |
+          envsubst < infra/k8s/02-clustersecretstores.yaml | kubectl apply -f -
+          envsubst < infra/k8s/03-externalsecret-db.yaml   | kubectl apply -f -
+          envsubst < infra/k8s/04-externalsecret-ssm.yaml  | kubectl apply -f -
+
+      # ── 11. Verify CoreDNS is healthy before waiting for secrets ─────────
+      - name: Preflight ExternalSecrets DNS
+        run: |
+          set -euo pipefail
+          echo "Checking CoreDNS readiness..."
+          if ! kubectl rollout status deployment/coredns -n kube-system --timeout=180s; then
+            echo "ERROR: CoreDNS is not ready. Check the EKS cluster Fargate profile and CoreDNS addon configuration." >&2
+            kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide >&2 || true
+            kubectl describe pod -n kube-system -l k8s-app=kube-dns >&2 || true
+            kubectl get events -n kube-system --sort-by=.lastTimestamp | tail -n 60 >&2 || true
+            exit 1
+          fi
+          echo "CoreDNS is healthy."
+          kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide
+
+      # ── 12. Wait for secrets to materialise ───────────────────────────────
+      - name: Wait for Kubernetes secrets
+        run: |
+          set -euo pipefail
+          echo "Waiting up to 6 min for ExternalSecrets to report Ready..."
+
+          if kubectl wait \
+            --for=condition=Ready \
+            --timeout=360s \
+            -n "$K8S_NAMESPACE" \
+            externalsecret/gateway-db \
+            externalsecret/gateway-ssm \
+            externalsecret/gateway-hmac; then
+            kubectl get secret gateway-db gateway-ssm gateway-hmac -n "$K8S_NAMESPACE" >/dev/null
+            echo "Secrets ready."
+            exit 0
+          fi
+
+          echo "ERROR: ExternalSecrets did not become Ready in time." >&2
+          echo "--- ExternalSecret summary ---" >&2
+          kubectl get externalsecret -n "$K8S_NAMESPACE" -o wide || true
+
+          echo "--- ExternalSecret details ---" >&2
+          kubectl describe externalsecret gateway-db   -n "$K8S_NAMESPACE" || true
+          kubectl describe externalsecret gateway-ssm  -n "$K8S_NAMESPACE" || true
+          kubectl describe externalsecret gateway-hmac -n "$K8S_NAMESPACE" || true
+
+          echo "--- ClusterSecretStore status ---" >&2
+          kubectl get clustersecretstore aws-secretsmanager aws-parameterstore -o wide || true
+          kubectl describe clustersecretstore aws-secretsmanager || true
+          kubectl describe clustersecretstore aws-parameterstore || true
+
+          echo "--- Recent namespace events ---" >&2
+          kubectl get events -n "$K8S_NAMESPACE" --sort-by=.lastTimestamp | tail -n 80 || true
+          exit 1
+
+      # ── 13. Deploy application ─────────────────────────────────────────────
+      - name: Deploy to EKS
+        env:
+          DEPLOY_IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+          POD_ROLE_ARN: ${{ steps.cfg.outputs.pod_role_arn }}
+          TGW_GW_ARN:   ${{ steps.cfg.outputs.tgw_gw_arn }}
+          TGW_ADMIN_ARN: ${{ steps.cfg.outputs.tgw_admin_arn }}
+        run: |
+          set -euo pipefail
+          kubectl apply -f infra/k8s/05-service.yaml
+          envsubst < infra/k8s/07-deployment.yaml        | kubectl apply -f -
+          envsubst < infra/k8s/06-targetgroupbindings.yaml | kubectl apply -f -
+          kubectl rollout status deployment/"$DEPLOYMENT_NAME" \
+            -n "$K8S_NAMESPACE" --timeout=600s

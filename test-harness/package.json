@@ -1,0 +1,11 @@
+{
+  "name": "tefca-ui-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "ui-e2e": "node ui-e2e-test.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.42.0"
+  }
+}

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <conversionRule conversionWord="phi" converterClass="chit.tefca.common.logging.PhiMaskingConverter"/>
+
+    <springProfile name="local,test,compose">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{ISO8601} [%thread] [%X{correlationId}] %-5level %logger{36} - %phi%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="chit.tefca" level="DEBUG"/>
+    </springProfile>
+
+    <springProfile name="dev,staging,prod,production">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+                <providers>
+                    <timestamp><fieldName>@timestamp</fieldName></timestamp>
+                    <logLevel/>
+                    <loggerName/>
+                    <threadName/>
+                    <provider class="chit.tefca.common.logging.PhiMaskingMessageJsonProvider"/>
+                    <mdc><includeMdcKeyName>correlationId</includeMdcKeyName></mdc>
+                    <stackTrace/>
+                    <pattern><pattern>{"service":"routing-service"}</pattern></pattern>
+                </providers>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+        <logger name="chit.tefca" level="INFO"/>
+    </springProfile>
+</configuration>

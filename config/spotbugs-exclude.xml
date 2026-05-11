@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Exclude Lombok-generated code -->
+    <Match>
+        <Class name="~.*\$.*Builder"/>
+    </Match>
+    <!-- Exclude test classes from strict checks -->
+    <Match>
+        <Class name="~.*Test$"/>
+        <Bug pattern="DM_DEFAULT_ENCODING"/>
+    </Match>
+</FindBugsFilter>

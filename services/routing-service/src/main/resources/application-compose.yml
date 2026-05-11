@@ -1,0 +1,12 @@
+# Profile: compose
+# Used by docker-compose.yml for full-stack local E2E testing.
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+  flyway:
+    enabled: false
+
+logging:
+  level:
+    chit.tefca: DEBUG

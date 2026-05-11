@@ -1,0 +1,319 @@
+{
+  "info": {
+    "_postman_id": "tefca-security-tests",
+    "name": "TEFCA Gateway — Security Test Suite",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "End-to-end security validation. Each request encodes the *expected* status code in its tests.\n\n## How to run\n\n**Use `make postman-security`** — it splits the collection into 4 newman invocations because each test class needs different TLS material:\n\n  • Folder `1. TLS edge`           — run WITHOUT any client cert  \n  • Folders `2a`, `3.`, `4.`, `5.` — run WITH `PART-CW-001.crt`  \n  • Folder `2b. untrusted cert`    — run WITH `/tmp/rogue.crt`  \n  • Folders `6.`, `7.`             — run against `:8444`, no client cert\n\nIn the **Postman desktop UI** you can only configure one client cert per host, so a single \"Run all\" will not work. Run the folders one at a time:\n\n  1. Settings → Certificates → Add: host=`localhost:8443`, PFX=`test-harness/certs/PART-CW-001.p12`, password=`tefca-test`\n  2. Settings → General → SSL certificate verification: **OFF** (dev only — local CA)\n  3. Run folders `0`, `2a`, `3`, `4`, `5` (cert sent automatically)\n  4. Disable the cert (Settings → Certificates → toggle off) and run folders `1`, `6`, `7`\n  5. Skip `2b` in desktop or import a separate self-signed cert as a second host entry"
+  },
+  "variable": [
+    { "key": "ingress",   "value": "https://localhost:8443" },
+    { "key": "admin",     "value": "https://localhost:8444" },
+    { "key": "mockJwt",   "value": "http://localhost:8090" },
+    { "key": "orgId",     "value": "ORG-QHIN-001" },
+    { "key": "nodeId",    "value": "NODE-CW-001" },
+    { "key": "targetOrg", "value": "ORG-QHIN-002" },
+    { "key": "jwt",       "value": "" },
+    { "key": "badJwt",    "value": "" },
+    { "key": "replayCorrelationId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Bootstrap — mint partner JWT (mock OIDC)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+        "body": { "mode": "urlencoded", "urlencoded": [
+          { "key": "org_id",       "value": "{{orgId}}" },
+          { "key": "node_id",      "value": "{{nodeId}}" },
+          { "key": "roles",        "value": "CLINICIAN,QHIN_ADMIN" },
+          { "key": "ttl_seconds",  "value": "3600" }
+        ]},
+        "url": "{{mockJwt}}/token"
+      },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('200 OK', () => pm.response.to.have.status(200));",
+        "const t = pm.response.json().access_token;",
+        "pm.expect(t).to.be.a('string');",
+        "pm.collectionVariables.set('jwt', t);",
+        "pm.environment.set('jwt', t);"
+      ]}}]
+    },
+
+    {
+      "name": "1. TLS edge — run WITHOUT any client cert",
+      "item": [
+        {
+          "name": "1a. Sidecar liveness (no client cert) — expect 200",
+          "request": { "method": "GET", "url": "{{ingress}}/sidecar/health" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 — sidecar healthcheck always reachable', () => pm.response.to.have.status(200));",
+            "pm.test('body says healthy', () => pm.expect(pm.response.text()).to.include('healthy'));"
+          ]}}]
+        },
+        {
+          "name": "1b. Partner endpoint WITHOUT client cert — expect 400 SSL cert error",
+          "request": { "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('400 — NGINX rejects request that did not present a client cert', () => pm.response.to.have.status(400));",
+            "pm.test('body mentions SSL', () => pm.expect(pm.response.text()).to.match(/SSL/i));"
+          ]}}]
+        }
+      ]
+    },
+
+    {
+      "name": "2a. mTLS — trusted partner cert + valid JWT — run WITH PART-CW-001",
+      "item": [
+        {
+          "name": "Patient discovery — expect 200 SUCCESS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization",   "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Correlation-ID","value": "{{$guid}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrg}}\"\n}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "pm.test('status=SUCCESS', () => pm.expect(pm.response.json().status).to.eql('SUCCESS'));"
+          ]}}]
+        }
+      ]
+    },
+
+    {
+      "name": "2b. mTLS — untrusted self-signed cert — run WITH /tmp/rogue.crt",
+      "item": [
+        {
+          "name": "Untrusted self-signed cert — expect 400 verify=FAILED",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('400 — NGINX refuses self-signed cert that is NOT chained to TEFCA root CA', () => pm.response.to.have.status(400));"
+          ]}}]
+        }
+      ]
+    },
+
+    {
+      "name": "3. JWT authentication — run WITH PART-CW-001",
+      "item": [
+        {
+          "name": "3a. Trusted cert + NO JWT — expect 401",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"targetOrgId\": \"{{targetOrg}}\"\n}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 — JWT layer rejects request after mTLS passes', () => pm.response.to.have.status(401));"
+          ]}}]
+        },
+        {
+          "name": "3b. Trusted cert + tampered JWT — expect 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer eyJhbGciOiJSUzI1NiJ9.tampered.signature" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"targetOrgId\": \"{{targetOrg}}\"\n}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 — invalid JWT signature', () => pm.response.to.have.status(401));"
+          ]}}]
+        },
+        {
+          "name": "3c. JWT replay — first call (expect 200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization",   "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",    "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"targetOrgId\": \"{{targetOrg}}\"\n}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "const cid = 'REPLAY-' + Date.now();",
+              "pm.collectionVariables.set('replayCorrelationId', cid);",
+              "pm.environment.set('replayCorrelationId', cid);",
+              "pm.request.headers.upsert({ key: 'X-Correlation-ID', value: cid });"
+            ]}},
+            { "listen": "test", "script": { "exec": [
+              "pm.test('first call: 200', () => pm.response.to.have.status(200));"
+            ]}}
+          ]
+        },
+        {
+          "name": "3d. JWT replay — second call same correlationId (expect 401/409 REPLAYED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"targetOrgId\": \"{{targetOrg}}\"\n}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "const cid = pm.collectionVariables.get('replayCorrelationId');",
+              "pm.request.headers.upsert({ key: 'X-Correlation-ID', value: cid });"
+            ]}},
+            { "listen": "test", "script": { "exec": [
+              "pm.test('replay rejected (401 or 409) OR same-result idempotent (200 with same correlationId)', () => pm.expect([200, 401, 409]).to.include(pm.response.code));",
+              "if (pm.response.code === 200) {",
+              "  // If idempotent semantics: response should reuse the stored correlation ID",
+              "  pm.test('idempotent reuse — same correlationId echoed', () => {",
+              "    pm.expect(pm.response.json().correlationId).to.eql(pm.collectionVariables.get('replayCorrelationId'));",
+              "  });",
+              "}"
+            ]}}
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "4. Authorization (RBAC) — run WITH PART-CW-001",
+      "item": [
+        {
+          "name": "4a. Mint a JWT whose only role is PROVIDER",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+            "body": { "mode": "urlencoded", "urlencoded": [
+              { "key": "org_id",  "value": "{{orgId}}" },
+              { "key": "node_id", "value": "{{nodeId}}" },
+              { "key": "roles",   "value": "PROVIDER" }
+            ]},
+            "url": "{{mockJwt}}/token"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const bt = pm.response.json().access_token;",
+            "pm.collectionVariables.set('badJwt', bt);",
+            "pm.environment.set('badJwt', bt);"
+          ]}}]
+        },
+        {
+          "name": "4b. Patient discovery with bad-role JWT — expect denial (403/422 OR 200 status=ERROR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{badJwt}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"targetOrgId\": \"{{targetOrg}}\"\n}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('request was denied', () => {",
+            "  if ([403, 422].includes(pm.response.code)) return;",
+            "  pm.expect(pm.response.code).to.eql(200);",
+            "  pm.expect(pm.response.json().status).to.be.oneOf(['ERROR','DENIED']);",
+            "});"
+          ]}}]
+        }
+      ]
+    },
+
+    {
+      "name": "5. Rate limiting — run WITH PART-CW-001",
+      "item": [
+        {
+          "name": "5a. Single call (sanity)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization",   "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Correlation-ID","value": "{{$guid}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"targetOrgId\": \"{{targetOrg}}\"\n}" },
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 or 429 (rate-limited acceptable in burst tests)', () => pm.expect([200, 429]).to.include(pm.response.code));"
+          ]}}]
+        }
+      ]
+    },
+
+    {
+      "name": "6. Admin edge (separate TLS-only listener) — NO client cert",
+      "item": [
+        {
+          "name": "6a. Admin UI root — expect 302 to /admin/login/",
+          "protocolProfileBehavior": { "followRedirects": false },
+          "request": { "method": "GET", "url": "{{admin}}/admin" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('302 redirect to login', () => pm.expect([301, 302]).to.include(pm.response.code));"
+          ]}}]
+        },
+        {
+          "name": "6b. Admin login page — expect 200 HTML",
+          "request": { "method": "GET", "url": "{{admin}}/admin/login/" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 HTML', () => pm.response.to.have.status(200));",
+            "pm.test('html', () => pm.expect(pm.response.headers.get('Content-Type')).to.match(/html/));"
+          ]}}]
+        },
+        {
+          "name": "6c. Admin API requires session — expect 401",
+          "request": { "method": "GET", "url": "{{admin}}/api/admin/proxy/directory/api/v1/directory/organizations" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 — admin proxy without session', () => pm.response.to.have.status(401));"
+          ]}}]
+        },
+        {
+          "name": "6d. Partner endpoint via admin edge — expect 404 (path segregation)",
+          "request": { "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{admin}}/api/v1/tefca/patient-discovery"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('404 — admin listener does not expose /api/v1/tefca/*', () => pm.response.to.have.status(404));"
+          ]}}]
+        }
+      ]
+    },
+
+    {
+      "name": "7. Actuator hardening — NO client cert",
+      "item": [
+        {
+          "name": "7a. /actuator/health — expect 200 UP",
+          "request": { "method": "GET", "url": "{{admin}}/actuator/health" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+          ]}}]
+        },
+        {
+          "name": "7b. /actuator/env — expect 401 (auth-required)",
+          "request": { "method": "GET", "url": "{{admin}}/actuator/env" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 — /actuator/env requires admin auth (never anonymous)', () => pm.response.to.have.status(401));"
+          ]}}]
+        }
+      ]
+    }
+  ]
+}

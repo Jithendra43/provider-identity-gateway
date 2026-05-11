@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>chit.tefca</groupId>
+        <artifactId>tefca-gateway</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>tefca-gateway-app</artifactId>
+    <name>TEFCA Gateway — Single Deployable</name>
+    <description>
+        Production fat-jar that aggregates ingress-auth, policy, routing, and
+        directory-cache into a single Spring Boot application running in one
+        Fargate task. Cross-service HTTP calls hit localhost:8080 (loopback)
+        for zero network cost.
+    </description>
+
+    <dependencies>
+        <!-- All four service modules in one context -->
+        <dependency>
+            <groupId>chit.tefca</groupId>
+            <artifactId>ingress-auth-service</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>chit.tefca</groupId>
+            <artifactId>policy-service</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>chit.tefca</groupId>
+            <artifactId>routing-service</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>chit.tefca</groupId>
+            <artifactId>directory-cache-service</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- AWS SDK for direct S3 audit shipping + SSM secret loading
+             (replaces Firehose, slashes ~$3/mo). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>ssm</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>secretsmanager</artifactId>
+        </dependency>
+
+        <!-- Micrometer → CloudWatch (in-process, no agent) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-cloudwatch2</artifactId>
+        </dependency>
+
+        <!-- BouncyCastle FIPS — registered via java.security override in
+             fips.security; classpath presence is mandatory for boot. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bc-fips</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bctls-fips</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-fips</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>tefca-gateway</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>chit.tefca.app.TefcaGatewayApplication</mainClass>
+                    <layers>
+                        <enabled>true</enabled>
+                    </layers>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

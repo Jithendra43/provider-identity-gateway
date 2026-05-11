@@ -1,0 +1,59 @@
+# Image is set by CI (envsubst) each deploy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tefca-gateway
+  namespace: tefca
+  labels:
+    app: tefca-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tefca-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: tefca-gateway
+    spec:
+      serviceAccountName: tefca-gateway
+      containers:
+        - name: app
+          image: "${DEPLOY_IMAGE}"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: tefca-gateway-config
+            - secretRef:
+                name: gateway-db
+            - secretRef:
+                name: gateway-hmac
+            - secretRef:
+                name: gateway-ssm
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1536Mi"
+            limits:
+              memory: "2Gi"

@@ -1,0 +1,411 @@
+openapi: 3.0.3
+info:
+  title: TEFCA Gateway — Directory Cache Service API
+  description: |
+    TEFCA partner directory cache. Provides low-latency lookup of QHIN organizations,
+    nodes, endpoints, and capabilities. Supports scheduled sync from the RCE directory
+    and manual cache management.
+  version: 1.0.0
+
+servers:
+  - url: http://directory-cache-service:8083
+    description: Internal (private subnet)
+
+paths:
+  /api/v1/directory/endpoints/lookup:
+    post:
+      summary: Lookup endpoints by criteria
+      description: Find endpoints matching organization, node, and modality criteria
+      operationId: lookupEndpoints
+      tags: [Directory Lookup]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointLookupRequest'
+      responses:
+        '200':
+          description: Matching endpoints
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EndpointLookupResponse'
+        '404':
+          description: No endpoints found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/directory/organizations/{orgId}/endpoints:
+    get:
+      summary: Get endpoints for an organization
+      operationId: getOrgEndpoints
+      tags: [Directory Lookup]
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization endpoints
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EndpointLookupResponse'
+
+  /api/v1/directory/nodes/{nodeId}:
+    get:
+      summary: Get node details
+      operationId: getNode
+      tags: [Directory Lookup]
+      parameters:
+        - name: nodeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Node details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeDto'
+        '404':
+          description: Node not found
+
+  /api/v1/directory/nodes:
+    get:
+      summary: List nodes
+      operationId: listNodes
+      tags: [Directory Lookup]
+      parameters:
+        - name: orgId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/NodeStatus'
+      responses:
+        '200':
+          description: Node list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NodeDto'
+
+  /api/v1/directory/organizations:
+    get:
+      summary: List organizations
+      operationId: listOrganizations
+      tags: [Directory Lookup]
+      responses:
+        '200':
+          description: Organization list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrganizationDto'
+
+  /api/v1/directory/organizations/{orgId}:
+    get:
+      summary: Get organization details
+      operationId: getOrganization
+      tags: [Directory Lookup]
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationDto'
+        '404':
+          description: Organization not found
+
+  /api/v1/directory/organizations/by-oid/{oid}:
+    get:
+      summary: Get organization by OID
+      operationId: getOrganizationByOid
+      tags: [Directory Lookup]
+      parameters:
+        - name: oid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationDto'
+        '404':
+          description: Organization not found
+
+  /api/v1/admin/directory/sync:
+    post:
+      summary: Trigger directory sync
+      description: Manually trigger a full sync from the RCE directory source
+      operationId: triggerSync
+      tags: [Directory Administration]
+      responses:
+        '202':
+          description: Sync initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectorySyncStatus'
+
+  /api/v1/admin/directory/sync/status:
+    get:
+      summary: Get latest sync status
+      operationId: getSyncStatus
+      tags: [Directory Administration]
+      responses:
+        '200':
+          description: Latest sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectorySyncStatus'
+
+  /api/v1/admin/directory/sync/status/{versionLabel}:
+    get:
+      summary: Get sync status by version
+      operationId: getSyncStatusByVersion
+      tags: [Directory Administration]
+      parameters:
+        - name: versionLabel
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync status for version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectorySyncStatus'
+
+  /api/v1/admin/directory/cache/invalidate:
+    post:
+      summary: Invalidate all cache entries
+      operationId: invalidateAllCache
+      tags: [Directory Administration]
+      responses:
+        '204':
+          description: Cache invalidated
+
+  /api/v1/admin/directory/cache/invalidate/{orgId}:
+    post:
+      summary: Invalidate cache for organization
+      operationId: invalidateOrgCache
+      tags: [Directory Administration]
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Organization cache invalidated
+
+  /api/v1/admin/directory/cache/version:
+    get:
+      summary: Get current cache version
+      operationId: getCacheVersion
+      tags: [Directory Administration]
+      responses:
+        '200':
+          description: Cache version info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  lastUpdated:
+                    type: string
+                    format: date-time
+
+  /actuator/health:
+    get:
+      summary: Health check
+      tags: [Operations]
+      responses:
+        '200':
+          description: Service healthy
+
+components:
+  schemas:
+    EndpointLookupRequest:
+      type: object
+      properties:
+        targetOrgId:
+          type: string
+        targetNodeId:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+
+    EndpointLookupResponse:
+      type: object
+      properties:
+        endpointId:
+          type: string
+        nodeId:
+          type: string
+        orgId:
+          type: string
+        url:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+        active:
+          type: boolean
+        certificateAlias:
+          type: string
+
+    NodeDto:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        orgId:
+          type: string
+        orgName:
+          type: string
+        name:
+          type: string
+        homeCommunityId:
+          type: string
+        status:
+          $ref: '#/components/schemas/NodeStatus'
+        endpointCount:
+          type: integer
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/CapabilityDto'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    OrganizationDto:
+      type: object
+      properties:
+        orgId:
+          type: string
+        name:
+          type: string
+        oid:
+          type: string
+        orgType:
+          type: string
+        active:
+          type: boolean
+        homeCommunityId:
+          type: string
+        lastSyncedAt:
+          type: string
+          format: date-time
+
+    CapabilityDto:
+      type: object
+      properties:
+        capabilityId:
+          type: string
+        nodeId:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+        operation:
+          $ref: '#/components/schemas/TefcaOperation'
+        enabled:
+          type: boolean
+
+    DirectorySyncStatus:
+      type: object
+      properties:
+        snapshotId:
+          type: integer
+          format: int64
+        versionLabel:
+          type: string
+        status:
+          type: string
+          enum: [IN_PROGRESS, COMPLETED, FAILED]
+        orgCount:
+          type: integer
+        nodeCount:
+          type: integer
+        endpointCount:
+          type: integer
+        capabilityCount:
+          type: integer
+        sourceUrl:
+          type: string
+        errorMessage:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    Modality:
+      type: string
+      enum: [XCPD, XCA_QUERY, XCA_RETRIEVE, XDR, FHIR]
+
+    TefcaOperation:
+      type: string
+      enum: [PATIENT_DISCOVERY, DOCUMENT_QUERY, DOCUMENT_RETRIEVE, MESSAGE_DELIVERY, FHIR_PROXY]
+
+    NodeStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+
+    ErrorResponse:
+      type: object
+      properties:
+        correlationId:
+          type: string
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

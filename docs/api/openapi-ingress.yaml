@@ -1,0 +1,370 @@
+openapi: 3.0.3
+info:
+  title: TEFCA Gateway — Ingress/Auth Service API
+  description: |
+    External-facing TEFCA operations endpoint. Handles mTLS termination, JWT validation,
+    rate limiting, request normalization, and orchestrates policy evaluation and routing.
+  version: 1.0.0
+  contact:
+    name: C-HIT TEFCA Gateway Team
+
+servers:
+  - url: https://gateway.example.com
+    description: Production
+  - url: https://gateway-staging.example.com
+    description: Staging
+
+security:
+  - bearerAuth: []
+  - mtls: []
+
+paths:
+  /api/v1/tefca/patient-discovery:
+    post:
+      summary: Patient Discovery (XCPD)
+      description: Cross-community patient lookup across TEFCA network
+      operationId: patientDiscovery
+      tags: [TEFCA Operations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatientDiscoveryRequest'
+      responses:
+        '200':
+          description: Patient matches found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientDiscoveryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/PolicyDenied'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/tefca/document-query:
+    post:
+      summary: Document Query (XCA Query)
+      description: Query for available documents for a patient
+      operationId: documentQuery
+      tags: [TEFCA Operations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentQueryRequest'
+      responses:
+        '200':
+          description: Document references returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentQueryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/PolicyDenied'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/tefca/document-retrieve:
+    post:
+      summary: Document Retrieve (XCA Retrieve)
+      description: Retrieve a specific document by ID
+      operationId: documentRetrieve
+      tags: [TEFCA Operations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentRetrieveRequest'
+      responses:
+        '200':
+          description: Document content returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentRetrieveResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/PolicyDenied'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/tefca/message-delivery:
+    post:
+      summary: Message Delivery (XDR)
+      description: Push a health message to a target organization
+      operationId: messageDelivery
+      tags: [TEFCA Operations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageDeliveryRequest'
+      responses:
+        '200':
+          description: Message delivered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageDeliveryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/PolicyDenied'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /actuator/health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Operations]
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    mtls:
+      type: mutualTLS
+
+  schemas:
+    PatientDiscoveryRequest:
+      type: object
+      required: [exchangePurpose, patientFirstName]
+      properties:
+        exchangePurpose:
+          $ref: '#/components/schemas/ExchangePurpose'
+        patientFirstName:
+          type: string
+          example: John
+        patientLastName:
+          type: string
+          example: Doe
+        patientDateOfBirth:
+          type: string
+          example: '1980-01-15'
+        patientGender:
+          type: string
+          enum: [M, F, O, U]
+        patientIdSystem:
+          type: string
+          example: urn:oid:2.16.840.1.113883.4.1
+        patientId:
+          type: string
+        targetOrgId:
+          type: string
+
+    PatientDiscoveryResponse:
+      type: object
+      properties:
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatientMatch'
+
+    PatientMatch:
+      type: object
+      properties:
+        patientId:
+          type: string
+        patientIdSystem:
+          type: string
+        orgId:
+          type: string
+        nodeId:
+          type: string
+        matchScore:
+          type: number
+          format: double
+
+    DocumentQueryRequest:
+      type: object
+      required: [exchangePurpose, patientId, patientIdSystem]
+      properties:
+        exchangePurpose:
+          $ref: '#/components/schemas/ExchangePurpose'
+        patientId:
+          type: string
+        patientIdSystem:
+          type: string
+        targetOrgId:
+          type: string
+        documentType:
+          type: string
+        dateFrom:
+          type: string
+        dateTo:
+          type: string
+
+    DocumentQueryResponse:
+      type: object
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentReference'
+
+    DocumentReference:
+      type: object
+      properties:
+        documentId:
+          type: string
+        documentType:
+          type: string
+        title:
+          type: string
+        createdDate:
+          type: string
+        sourceOrgId:
+          type: string
+        repositoryId:
+          type: string
+
+    DocumentRetrieveRequest:
+      type: object
+      required: [exchangePurpose, documentId, repositoryId, patientId]
+      properties:
+        exchangePurpose:
+          $ref: '#/components/schemas/ExchangePurpose'
+        documentId:
+          type: string
+        repositoryId:
+          type: string
+        patientId:
+          type: string
+        targetOrgId:
+          type: string
+
+    DocumentRetrieveResponse:
+      type: object
+      properties:
+        documentId:
+          type: string
+        mimeType:
+          type: string
+        content:
+          type: string
+          description: Base64-encoded document content
+        sourceOrgId:
+          type: string
+
+    MessageDeliveryRequest:
+      type: object
+      required: [exchangePurpose, targetOrgId, messageType, messageBody]
+      properties:
+        exchangePurpose:
+          $ref: '#/components/schemas/ExchangePurpose'
+        targetOrgId:
+          type: string
+        messageType:
+          type: string
+        patientId:
+          type: string
+        messageBody:
+          type: object
+          additionalProperties: true
+
+    MessageDeliveryResponse:
+      type: object
+      properties:
+        messageId:
+          type: string
+        status:
+          type: string
+        targetOrgId:
+          type: string
+
+    ExchangePurpose:
+      type: string
+      enum: [TREATMENT, PAYMENT, HEALTHCARE_OPERATIONS, PUBLIC_HEALTH, INDIVIDUAL_ACCESS, BENEFITS_DETERMINATION]
+
+    ErrorResponse:
+      type: object
+      properties:
+        correlationId:
+          type: string
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              code:
+                type: string
+              message:
+                type: string
+
+  responses:
+    Unauthorized:
+      description: Authentication failed (invalid/missing JWT or certificate)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PolicyDenied:
+      description: Policy evaluation returned DENY
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

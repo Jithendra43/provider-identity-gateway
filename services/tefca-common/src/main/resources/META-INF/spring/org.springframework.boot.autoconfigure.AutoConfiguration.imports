@@ -1,0 +1,2 @@
+chit.tefca.common.config.CommonAutoConfiguration
+chit.tefca.common.audit.AuditJpaConfig

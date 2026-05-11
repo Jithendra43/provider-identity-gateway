@@ -1,0 +1,19 @@
+# Profile: compose
+# Used by docker-compose.yml for full-stack local E2E testing.
+# Inherits Postgres from application.yml. Disables OAuth2 resource
+# server so the policy-service can be reached internally without JWTs (the
+# ingress-auth-service is the only externally-exposed service).
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+
+# Disable Flyway location strictness if migrations are partial in the compose
+# stack. The DB is provisioned by ./database/migrations volume-mounted in
+# Postgres, so service-side Flyway just validates.
+spring.flyway:
+  enabled: false
+
+logging:
+  level:
+    chit.tefca: DEBUG

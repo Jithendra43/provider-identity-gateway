@@ -1,0 +1,85 @@
+.background-customizable {
+  background-color: #0b1733;
+  background-image: radial-gradient(circle at 18% 22%, rgba(56, 121, 255, 0.55) 0%, transparent 55%), radial-gradient(circle at 82% 78%, rgba(99, 65, 199, 0.45) 0%, transparent 55%), linear-gradient(135deg, #0b1733 0%, #111b3d 100%);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.banner-customizable {
+  padding: 28px 0px 24px 0px;
+  background-color: transparent;
+}
+.logo-customizable {
+  max-width: 64px;
+  max-height: 64px;
+}
+.label-customizable {
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #cbd5e1;
+}
+.textDescription-customizable {
+  padding-top: 6px;
+  padding-bottom: 14px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+.idpDescription-customizable {
+  padding-top: 6px;
+  padding-bottom: 14px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+.legalText-customizable {
+  color: #cbd5e1;
+  font-size: 11px;
+}
+.submitButton-customizable {
+  font-size: 14px;
+  font-weight: 600;
+  background-color: #2563eb;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 11px 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.errorMessage-customizable {
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.inputField-customizable {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.idpButton-customizable {
+  background-color: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-weight: 500;
+}
+.socialButton-customizable {
+  border-radius: 8px;
+}
+.redirect-customizable {
+  text-align: center;
+  color: #2563eb;
+  font-size: 13px;
+}
+.passwordCheck-notValid-customizable {
+  color: #b91c1c;
+}
+.passwordCheck-valid-customizable {
+  color: #047857;
+}

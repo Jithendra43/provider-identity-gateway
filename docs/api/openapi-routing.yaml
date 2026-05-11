@@ -1,0 +1,150 @@
+openapi: 3.0.3
+info:
+  title: TEFCA Gateway — Routing Service API
+  description: |
+    TEFCA routing and transaction forwarding. Resolves target endpoints via directory,
+    selects route strategy (direct/fan-out/fallback), and forwards with circuit breaker protection.
+  version: 1.0.0
+
+servers:
+  - url: http://routing-service:8082
+    description: Internal (private subnet)
+
+paths:
+  /api/v1/routing/route:
+    post:
+      summary: Route and forward TEFCA transaction
+      description: |
+        Resolves the target endpoint for a TEFCA operation, selects the appropriate
+        routing strategy, and forwards the request. Supports idempotency via idempotencyKey.
+      operationId: routeTransaction
+      tags: [Routing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteRequest'
+      responses:
+        '200':
+          description: Transaction routed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No route found for target
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Circuit breaker open or all endpoints unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /actuator/health:
+    get:
+      summary: Health check
+      tags: [Operations]
+      responses:
+        '200':
+          description: Service healthy
+
+components:
+  schemas:
+    RouteRequest:
+      type: object
+      required: [correlationId, operation, modality, targetOrgId, requesterOrgId]
+      properties:
+        correlationId:
+          type: string
+        operation:
+          $ref: '#/components/schemas/TefcaOperation'
+        modality:
+          $ref: '#/components/schemas/Modality'
+        targetOrgId:
+          type: string
+        targetNodeId:
+          type: string
+        requesterOrgId:
+          type: string
+        idempotencyKey:
+          type: string
+          description: If provided, duplicate requests return cached response
+        payload:
+          type: object
+          additionalProperties: true
+          description: TEFCA request payload to forward
+
+    RouteResponse:
+      type: object
+      properties:
+        correlationId:
+          type: string
+        resolvedEndpointUrl:
+          type: string
+          description: The actual URL the request was forwarded to
+        resolvedNodeId:
+          type: string
+        httpStatus:
+          type: integer
+          description: HTTP status from the target endpoint
+        responsePayload:
+          type: object
+          additionalProperties: true
+          description: Response body from the target endpoint
+        routingDurationMs:
+          type: integer
+          format: int64
+          description: Time spent resolving the route (ms)
+        forwardDurationMs:
+          type: integer
+          format: int64
+          description: Time spent forwarding to target (ms)
+        completedAt:
+          type: string
+          format: date-time
+
+    TefcaOperation:
+      type: string
+      enum: [PATIENT_DISCOVERY, DOCUMENT_QUERY, DOCUMENT_RETRIEVE, MESSAGE_DELIVERY, FHIR_PROXY]
+
+    Modality:
+      type: string
+      enum: [XCPD, XCA_QUERY, XCA_RETRIEVE, XDR, FHIR]
+
+    ErrorResponse:
+      type: object
+      properties:
+        correlationId:
+          type: string
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+  responses:
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

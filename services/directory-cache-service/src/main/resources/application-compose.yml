@@ -1,0 +1,22 @@
+# Profile: compose
+# Used by docker-compose.yml for full-stack local E2E testing.
+# Disables OAuth2 — internal service only. Disables Flyway because the DB
+# schema is provisioned by the postgres container's init scripts.
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+  flyway:
+    enabled: false
+
+tefca:
+  directory:
+    # Mock RCE/QHIN directory served by wiremock in compose. Returns an empty
+    # snapshot so the sync still completes successfully (the seed SQL provides
+    # actual directory rows).
+    source-url: http://wiremock:8080/__admin/files/upstream-directory.json
+    sync-enabled: false
+
+logging:
+  level:
+    chit.tefca: DEBUG

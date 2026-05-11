@@ -1,0 +1,2 @@
+# Placeholder for partner TLS certificates.
+# In production, certificates are loaded from AWS Secrets Manager.

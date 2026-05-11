@@ -1,0 +1,29 @@
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # In single-task cost-min mode the gateway hosts a mock IdP; we use
+          # jwk-set-uri to avoid OIDC discovery (which would require outbound
+          # DNS to a real IdP). Override OAUTH2_JWK_SET_URI/OAUTH2_ISSUER_URI
+          # to point at a real partner IdP when going live.
+          jwk-set-uri: ${OAUTH2_JWK_SET_URI:http://127.0.0.1:8080/oauth2/.well-known/jwks.json}
+          issuer-uri: ${OAUTH2_ISSUER_URI:http://localhost:8080}
+
+# Production admin authentication: OIDC + secure-by-default cookies.
+# Operators authenticate via the partner IdP (Okta/Entra/etc.); we never
+# accept passwords for prod traffic. MFA is enforced upstream by the IdP.
+tefca:
+  admin:
+    auth-mode: ${ADMIN_AUTH_MODE:oidc}
+    cookie-secure: true
+    cookie-same-site: Strict
+    cookie-max-age-seconds: 1800
+  security:
+    replay-protection:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    chit.tefca: INFO

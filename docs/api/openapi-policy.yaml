@@ -1,0 +1,285 @@
+openapi: 3.0.3
+info:
+  title: TEFCA Gateway — Policy Service API
+  description: |
+    TEFCA policy evaluation and administration. Evaluates access control rules
+    for exchange purpose, modality, organization, and role-based authorization.
+  version: 1.0.0
+
+servers:
+  - url: http://policy-service:8081
+    description: Internal (private subnet)
+
+paths:
+  /api/v1/policy/evaluate:
+    post:
+      summary: Evaluate access policy
+      description: |
+        Evaluates whether a TEFCA request is permitted based on configured policy rules.
+        Returns PERMIT or DENY with explanations and applicable obligations.
+      operationId: evaluatePolicy
+      tags: [Policy Evaluation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyEvaluationRequest'
+      responses:
+        '200':
+          description: Policy decision returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyEvaluationResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/policy/rules:
+    get:
+      summary: List active policy rules
+      operationId: listPolicyRules
+      tags: [Policy Administration]
+      responses:
+        '200':
+          description: Active policy rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PolicyRuleDto'
+    post:
+      summary: Create policy rule
+      operationId: createPolicyRule
+      tags: [Policy Administration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRuleDto'
+      responses:
+        '201':
+          description: Rule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRuleDto'
+        '400':
+          description: Invalid rule definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/policy/rules/{ruleId}:
+    parameters:
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get policy rule by ID
+      operationId: getPolicyRule
+      tags: [Policy Administration]
+      responses:
+        '200':
+          description: Policy rule details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRuleDto'
+        '404':
+          description: Rule not found
+    put:
+      summary: Update policy rule
+      operationId: updatePolicyRule
+      tags: [Policy Administration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRuleDto'
+      responses:
+        '200':
+          description: Rule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRuleDto'
+    delete:
+      summary: Deactivate policy rule
+      operationId: deactivatePolicyRule
+      tags: [Policy Administration]
+      responses:
+        '204':
+          description: Rule deactivated
+
+  /api/v1/admin/policy/rules/{ruleId}/history:
+    parameters:
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get rule version history
+      operationId: getRuleHistory
+      tags: [Policy Administration]
+      responses:
+        '200':
+          description: Version history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PolicyRuleDto'
+
+  /actuator/health:
+    get:
+      summary: Health check
+      tags: [Operations]
+      responses:
+        '200':
+          description: Service healthy
+
+components:
+  schemas:
+    PolicyEvaluationRequest:
+      type: object
+      required: [correlationId, operation, exchangePurpose, modality, requesterOrgId, requesterNodeId]
+      properties:
+        correlationId:
+          type: string
+        operation:
+          $ref: '#/components/schemas/TefcaOperation'
+        exchangePurpose:
+          $ref: '#/components/schemas/ExchangePurpose'
+        modality:
+          $ref: '#/components/schemas/Modality'
+        requesterOrgId:
+          type: string
+        requesterNodeId:
+          type: string
+        targetOrgId:
+          type: string
+        targetNodeId:
+          type: string
+        patientId:
+          type: string
+        requesterRoles:
+          type: array
+          items:
+            type: string
+
+    PolicyEvaluationResponse:
+      type: object
+      properties:
+        correlationId:
+          type: string
+        decision:
+          $ref: '#/components/schemas/PolicyDecisionType'
+        obligations:
+          type: array
+          items:
+            type: string
+        explanations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyExplanation'
+        policyVersion:
+          type: string
+        evaluatedAt:
+          type: string
+          format: date-time
+
+    PolicyExplanation:
+      type: object
+      properties:
+        ruleId:
+          type: string
+        ruleName:
+          type: string
+        category:
+          type: string
+        result:
+          type: string
+          enum: [PASS, FAIL, SKIP]
+        reason:
+          type: string
+
+    PolicyRuleDto:
+      type: object
+      required: [ruleName, category, ruleExpression]
+      properties:
+        ruleId:
+          type: string
+        ruleName:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        ruleExpression:
+          type: string
+        priority:
+          type: integer
+          default: 100
+        active:
+          type: boolean
+          default: true
+        changedBy:
+          type: string
+        changeReason:
+          type: string
+
+    TefcaOperation:
+      type: string
+      enum: [PATIENT_DISCOVERY, DOCUMENT_QUERY, DOCUMENT_RETRIEVE, MESSAGE_DELIVERY, FHIR_PROXY]
+
+    ExchangePurpose:
+      type: string
+      enum: [TREATMENT, PAYMENT, HEALTHCARE_OPERATIONS, PUBLIC_HEALTH, INDIVIDUAL_ACCESS, BENEFITS_DETERMINATION]
+
+    Modality:
+      type: string
+      enum: [XCPD, XCA_QUERY, XCA_RETRIEVE, XDR, FHIR]
+
+    PolicyDecisionType:
+      type: string
+      enum: [PERMIT, DENY]
+
+    ErrorResponse:
+      type: object
+      properties:
+        correlationId:
+          type: string
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+  responses:
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

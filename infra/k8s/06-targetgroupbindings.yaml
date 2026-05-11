@@ -1,0 +1,24 @@
+# Target group ARNs are substituted at deploy time (existing Terraform ALB TGs).
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: tefca-gateway-mtls
+  namespace: tefca
+spec:
+  serviceRef:
+    name: tefca-gateway
+    port: 8080
+  targetGroupARN: "${TGW_GW_ARN}"
+  targetType: ip
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: tefca-gateway-admin
+  namespace: tefca
+spec:
+  serviceRef:
+    name: tefca-gateway
+    port: 8080
+  targetGroupARN: "${TGW_ADMIN_ARN}"
+  targetType: ip

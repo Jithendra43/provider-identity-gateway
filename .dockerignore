@@ -1,0 +1,18 @@
+target/
+.git/
+.idea/
+.vscode/
+**/target/
+**/*.log
+**/.DS_Store
+infra/
+docs/
+test-harness/
+# Stale Next.js build artefacts must not bleed into the docker context — the
+# in-container `npm run build` re-generates these. If we ship a local out/
+# alongside the container build, Next.js may keep BOTH old and new page chunks
+# (route index.html ends up referencing the stale chunk → "Edit URL invisible"
+# bug). Force a clean rebuild every time.
+apps/*/.next/
+apps/*/out/
+apps/*/node_modules/

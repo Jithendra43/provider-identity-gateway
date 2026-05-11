@@ -1,0 +1,220 @@
+# =============================================================================
+# TEFCA Gateway — production profile (single Fargate task on AWS)
+# =============================================================================
+# Activate with SPRING_PROFILES_ACTIVE=prod
+# All secrets are injected by ECS task definition from Secrets Manager / SSM.
+# =============================================================================
+
+server:
+  port: 8080
+  forward-headers-strategy: framework
+  shutdown: graceful
+  tomcat:
+    max-threads: 200
+    accesslog:
+      enabled: false   # access logs already in ALB
+
+spring:
+  application:
+    name: tefca-gateway
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+
+  # RDS PostgreSQL — credentials come from Secrets Manager via env
+  datasource:
+    url: ${DB_URL}                    # jdbc:postgresql://<rds-endpoint>:5432/tefca
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}          # rotated by Secrets Manager Lambda
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 5000
+
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: true
+    out-of-order: true
+    validate-on-migrate: false
+    locations: classpath:db/migration
+
+  # OAuth2 — both resource server (API JWT) AND client (admin Cognito SSO)
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${OAUTH2_JWK_SET_URI:http://127.0.0.1:8080/oauth2/.well-known/jwks.json}
+          issuer-uri:  ${OAUTH2_ISSUER_URI:http://localhost:8080}
+          audiences:   ${OAUTH2_AUDIENCE:tefca-gateway}
+      # Admin UI sign-in: Authorization-Code flow against the Cognito Hosted
+      # UI. Browser is redirected to Cognito on any unauthenticated /admin/**
+      # request; on success Spring lands the user on /admin/dashboard/.
+      # There is no in-app login page in prod.
+      client:
+        registration:
+          cognito:
+            client-id: ${COGNITO_CLIENT_ID}
+            client-secret: ${COGNITO_CLIENT_SECRET}
+            client-name: Cognito
+            scope: openid,email,profile
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            authorization-grant-type: authorization_code
+            client-authentication-method: client_secret_basic
+        provider:
+          cognito:
+            issuer-uri: ${COGNITO_ISSUER_URI}
+            user-name-attribute: sub
+
+# -----------------------------------------------------------------------------
+# Cross-service "clients" — stay on the loopback so the four embedded contexts
+# share one TCP stack at zero cost.
+# -----------------------------------------------------------------------------
+tefca:
+  services:
+    policy-url:          http://127.0.0.1:8080
+    routing-url:         http://127.0.0.1:8080
+    directory-url:       http://127.0.0.1:8080
+    directory-cache-url: http://127.0.0.1:8080
+  timeouts:
+    policy-ms:    2000
+    routing-ms:   2000
+    directory-ms: 2000
+
+  # HMAC for any out-of-process callers (none in single-task mode, but still
+  # enforced so the moment we scale to >1 task it works).
+  hmac:
+    secret: ${HMAC_SECRET}
+
+  # JWT validation — JWKS fetched from partner OIDC over the NAT instance.
+  jwt:
+    issuer-uri: ${JWT_ISSUER_URI}
+    audience:   ${JWT_AUDIENCE:tefca-gateway}
+    jwks-cache-ttl-seconds: 3600
+
+  # mTLS — partner cert chain validated by ALB; thumbprints pinned in DB.
+  mtls:
+    header-cert: X-Amzn-Mtls-Clientcert
+    header-verify: X-Amzn-Mtls-Clientcert-Verify
+    require: true
+
+  # Replay-guard window. In-process Caffeine cache (single Fargate task).
+  replay:
+    backend: caffeine
+    ttl-seconds: 900
+
+  # In-process audit shipper — writes AuditEvents directly to S3 WORM bucket.
+  # Eliminates Firehose (~$3/mo).
+  audit:
+    sink: s3
+    s3-bucket: ${AUDIT_BUCKET}
+    s3-prefix: events/dt=
+    flush-interval-seconds: 30
+    flush-batch-size: 100
+    wal-path: /tmp/tefca-audit-wal    # crash-safe append-only buffer
+
+  # Admin UI (Cognito-protected listener on the ALB)
+  admin:
+    enabled: true
+    # Production uses Cognito OIDC SSO (oauth2Login). The mock form-login
+    # path is disabled.
+    auth-mode: oidc
+    cookie-secure: true
+    cognito-issuer: ${COGNITO_ISSUER_URI}
+    cognito-audience: ${COGNITO_AUDIENCE}
+    # All four logical services run as embedded contexts inside this single
+    # Fargate JVM, so every proxied admin call stays on loopback:8080.
+    # Without these overrides the dev defaults (8081/8082/8083) leak through
+    # and the dashboard reports Policy/Routing/Directory as DOWN.
+    proxy:
+      services:
+        policy:    http://127.0.0.1:8080
+        routing:   http://127.0.0.1:8080
+        directory: http://127.0.0.1:8080
+        ingress:   http://127.0.0.1:8080
+    # Identity used when an admin Cognito session calls a /api/v1/tefca/**
+    # endpoint via the in-app Test Console. Cognito ID tokens carry no
+    # orgId/nodeId/roles claims so JwtAuthenticationFilter cannot populate
+    # a RequesterIdentity for those requests; without this fallback the
+    # policy engine would receive `requesterOrgId=unknown` and
+    # RequesterOrgValidator would deny every TREATMENT request.
+    # The org/node referenced here are seeded by V007__bootstrap_admin_data.sql.
+    test-harness:
+      org-id: ORG-ADMIN-CONSOLE
+      node-id: NODE-ADMIN-CONSOLE
+      roles:
+        - QHIN_ADMIN
+
+  # ---------------------------------------------------------------------------
+  # Prior Authorization (PA) routing — /api/v1/pa/**
+  # ---------------------------------------------------------------------------
+  # CRD endpoints are live; DTR/PAS endpoints exist in the directory but are
+  # marked active=false until those downstream services ship. Inbound auth is
+  # mTLS (cert thumbprint -> ingress.partners.org_id). The gateway then mints
+  # a 60-second internal RS256 JWT (signed with the same key as the mock IDP)
+  # to authenticate the downstream service-to-service hop.
+  pa:
+    enabled: true
+    org-mapper:
+      cache-ttl-seconds: 300
+      cache-max-size: 1024
+  mock-pa:
+    # In production this is OFF — the live CRD/DTR/PAS services answer
+    # the loopback URLs instead. Set to true only in non-prod profiles.
+    enabled: ${TEFCA_MOCK_PA_ENABLED:false}
+  internal-jwt:
+    issuer: tefca-gateway-internal
+    ttl-seconds: 60
+
+# -----------------------------------------------------------------------------
+# Observability — Micrometer → CloudWatch in-process (no extra agent).
+# -----------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        # env/loggers/configprops are needed by the admin Configuration page.
+        # They are only reachable via the loopback proxy that requires a
+        # Cognito-authenticated QHIN_ADMIN session, so safe to enable.
+        include: health,info,prometheus,metrics,env,loggers,configprops
+      base-path: /actuator
+  endpoint:
+    env:
+      show-values: when-authorized
+    configprops:
+      show-values: when-authorized
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: db,readinessState
+        liveness:
+          include: livenessState
+  metrics:
+    export:
+      cloudwatch:
+        enabled: true
+        namespace: tefca/prod
+        step: 60s
+        batch-size: 20
+  health:
+    db:
+      enabled: true
+
+# -----------------------------------------------------------------------------
+# Logging — JSON to stdout for CloudWatch Logs (single log group, 14d retention)
+# -----------------------------------------------------------------------------
+logging:
+  level:
+    root: INFO
+    chit.tefca: INFO
+    org.springframework.security: ${SECURITY_LOG_LEVEL:WARN}
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{correlationId}] %logger{36} - %msg%n"

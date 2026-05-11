@@ -1,0 +1,304 @@
+{
+  "mappings": [
+    {
+      "name": "XCPD - Patient match: Doe (Jane)",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xcpd",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.patientLastName == 'Doe')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "matches": [
+            {"patientId": "patient-doe-001", "givenName": "Jane",  "familyName": "Doe", "birthDate": "1980-01-15", "gender": "F", "score": 0.99},
+            {"patientId": "patient-doe-002", "givenName": "Janet", "familyName": "Doe", "birthDate": "1982-03-12", "gender": "F", "score": 0.81}
+          ],
+          "respondingNode": "MOCK-PARTNER-NODE"
+        }
+      }
+    },
+    {
+      "name": "XCPD - Patient match: Smith (John)",
+      "priority": 2,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xcpd",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.patientLastName == 'Smith')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "matches": [
+            {"patientId": "patient-smith-001", "givenName": "John",  "familyName": "Smith", "birthDate": "1975-07-04", "gender": "M", "score": 0.97},
+            {"patientId": "patient-smith-002", "givenName": "Johan", "familyName": "Smith", "birthDate": "1975-07-04", "gender": "M", "score": 0.74}
+          ],
+          "respondingNode": "MOCK-PARTNER-NODE"
+        }
+      }
+    },
+    {
+      "name": "XCPD - Pediatric patient: Garcia (Maria)",
+      "priority": 3,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xcpd",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.patientLastName == 'Garcia')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "matches": [
+            {"patientId": "patient-garcia-ped-001", "givenName": "Maria", "familyName": "Garcia", "birthDate": "2018-09-22", "gender": "F", "score": 0.98}
+          ],
+          "respondingNode": "MOCK-PARTNER-NODE"
+        }
+      }
+    },
+    {
+      "name": "XCPD - No-match fallback",
+      "priority": 100,
+      "request": { "method": "POST", "urlPath": "/xcpd" },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "NO_MATCH",
+          "matches": [],
+          "respondingNode": "MOCK-PARTNER-NODE",
+          "note": "No patient found matching the supplied demographics."
+        }
+      }
+    },
+
+    {
+      "name": "XCA Query - Documents for Doe",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xca/query",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.patientId == 'patient-doe-001')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "documents": [
+            {"documentId": "doc-doe-ccd-001",   "repositoryId": "REPO-CW-001",  "title": "Continuity of Care Document",     "format": "C-CDA",      "mimeType": "application/xml", "creationTime": "2025-12-01T10:00:00Z", "size": 4096},
+            {"documentId": "doc-doe-disch-001", "repositoryId": "REPO-CW-001",  "title": "Discharge Summary 2026-01-15",    "format": "C-CDA",      "mimeType": "application/xml", "creationTime": "2026-01-15T14:30:00Z", "size": 6112},
+            {"documentId": "doc-doe-lab-001",   "repositoryId": "REPO-EHX-001", "title": "Lab Panel - CBC",                  "format": "FHIR-JSON",  "mimeType": "application/fhir+json", "creationTime": "2026-02-09T08:14:00Z", "size": 1842}
+          ]
+        }
+      }
+    },
+    {
+      "name": "XCA Query - Documents for Smith",
+      "priority": 2,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xca/query",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.patientId == 'patient-smith-001')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "documents": [
+            {"documentId": "doc-smith-ccd-001", "repositoryId": "REPO-EPIC-001", "title": "Continuity of Care Document",  "format": "C-CDA", "mimeType": "application/xml", "creationTime": "2025-09-12T07:55:00Z", "size": 5300}
+          ]
+        }
+      }
+    },
+    {
+      "name": "XCA Query - empty fallback",
+      "priority": 100,
+      "request": { "method": "POST", "urlPath": "/xca/query" },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": { "status": "OK", "documents": [], "note": "No documents indexed for the supplied patientId." }
+      }
+    },
+
+    {
+      "name": "XCA Retrieve - Doe CCD",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xca/retrieve",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.documentId == 'doc-doe-ccd-001')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "document": {
+            "documentId": "doc-doe-ccd-001",
+            "repositoryId": "REPO-CW-001",
+            "mimeType": "application/xml",
+            "format": "C-CDA",
+            "title": "Continuity of Care Document",
+            "createdAt": "2025-12-01T10:00:00Z",
+            "content": "<ClinicalDocument xmlns='urn:hl7-org:v3'><id root='2.16.840.1.113883.19.5.99999.1'/><code code='34133-9' codeSystem='2.16.840.1.113883.6.1' displayName='Summarization of Episode Note'/><title>Continuity of Care Document - Jane Doe</title><effectiveTime value='20251201100000+0000'/><recordTarget><patientRole><id extension='patient-doe-001' root='2.16.840.1.113883.4.1'/><patient><name><given>Jane</given><family>Doe</family></name><administrativeGenderCode code='F'/><birthTime value='19800115'/></patient></patientRole></recordTarget></ClinicalDocument>"
+          }
+        }
+      }
+    },
+    {
+      "name": "XCA Retrieve - Discharge summary",
+      "priority": 2,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xca/retrieve",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.documentId == 'doc-doe-disch-001')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "document": {
+            "documentId": "doc-doe-disch-001",
+            "repositoryId": "REPO-CW-001",
+            "mimeType": "application/xml",
+            "format": "C-CDA",
+            "title": "Discharge Summary",
+            "createdAt": "2026-01-15T14:30:00Z",
+            "content": "<ClinicalDocument xmlns='urn:hl7-org:v3'><title>Discharge Summary - Jane Doe</title><component><structuredBody><component><section><title>Hospital Course</title><text>Routine post-op recovery, discharged 2026-01-15.</text></section></component></structuredBody></component></ClinicalDocument>"
+          }
+        }
+      }
+    },
+    {
+      "name": "XCA Retrieve - FHIR lab bundle",
+      "priority": 3,
+      "request": {
+        "method": "POST",
+        "urlPath": "/xca/retrieve",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.documentId == 'doc-doe-lab-001')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "OK",
+          "document": {
+            "documentId": "doc-doe-lab-001",
+            "repositoryId": "REPO-EHX-001",
+            "mimeType": "application/fhir+json",
+            "format": "FHIR-JSON",
+            "title": "Lab Panel - CBC",
+            "createdAt": "2026-02-09T08:14:00Z",
+            "content": "{\"resourceType\":\"Bundle\",\"type\":\"document\",\"entry\":[{\"resource\":{\"resourceType\":\"DiagnosticReport\",\"id\":\"cbc-001\",\"status\":\"final\",\"code\":{\"coding\":[{\"system\":\"http://loinc.org\",\"code\":\"58410-2\",\"display\":\"CBC panel\"}]},\"subject\":{\"reference\":\"Patient/patient-doe-001\"},\"effectiveDateTime\":\"2026-02-09T08:14:00Z\"}}]}"
+          }
+        }
+      }
+    },
+    {
+      "name": "XCA Retrieve - unknown document fallback",
+      "priority": 100,
+      "request": { "method": "POST", "urlPath": "/xca/retrieve" },
+      "response": {
+        "status": 404,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": { "status": "NOT_FOUND", "error": "DOCUMENT_NOT_FOUND", "message": "No document matched the supplied documentId/repositoryId." }
+      }
+    },
+
+    {
+      "name": "FHIR - Patient bundle for Doe",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/fhir",
+        "bodyPatterns": [
+          { "matchesJsonPath": "$.[?(@.patientLastName == 'Doe')]" }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/fhir+json"},
+        "jsonBody": {
+          "resourceType": "Bundle",
+          "type": "searchset",
+          "total": 1,
+          "entry": [
+            { "resource": {
+                "resourceType": "Patient",
+                "id": "patient-doe-001",
+                "identifier": [{"system": "urn:oid:2.16.840.1.113883.4.1", "value": "patient-doe-001"}],
+                "name": [{"family": "Doe", "given": ["Jane"]}],
+                "gender": "female",
+                "birthDate": "1980-01-15"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "FHIR - empty bundle fallback",
+      "priority": 100,
+      "request": { "method": "POST", "urlPath": "/fhir" },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/fhir+json"},
+        "jsonBody": {"resourceType": "Bundle", "type": "searchset", "total": 0, "entry": []}
+      }
+    },
+
+    {
+      "name": "XDR - Direct delivery accepted",
+      "priority": 1,
+      "request": { "method": "POST", "urlPath": "/xdr" },
+      "response": {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {
+          "status": "DELIVERED",
+          "messageId": "{{randomValue length=12 type='ALPHANUMERIC'}}",
+          "acknowledgedAt": "{{now}}",
+          "respondingNode": "MOCK-PARTNER-NODE"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+
+    {
+      "name": "Failure simulator (POST /fail) - 503",
+      "priority": 1,
+      "request": { "method": "POST", "urlPath": "/fail" },
+      "response": {
+        "status": 503,
+        "headers": {"Content-Type": "application/json"},
+        "jsonBody": {"error": "SIMULATED_DOWNSTREAM_FAILURE", "message": "Use this endpoint to exercise the circuit breaker / retry logic."}
+      }
+    }
+  ]
+}

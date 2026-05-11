@@ -1,0 +1,93 @@
+# ===== Java / Maven =====
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ===== IDE =====
+.idea/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+.factorypath
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Spring Boot =====
+*.log
+*.log.*
+
+# ===== Secrets / Certs =====
+*.pem
+*.p12
+*.jks
+*.keystore
+*.truststore
+!**/.gitkeep
+# Generated locally by test-harness/certs/gen-certs.sh — not for VCS.
+test-harness/certs/*.crt
+test-harness/certs/*.key
+test-harness/certs/*.p12
+test-harness/certs/*.srl
+database/seed/R004__partner_certificates.sql
+
+# ===== Environment =====
+.env
+.env.*
+!.env.example
+
+# ===== Docker =====
+docker-compose.override.yml
+
+# ===== Terraform =====
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
+# Real tfvars never committed; only the .example templat
+infra/terraform/envs/*/backend.hcl
+
+# ===== Build artifacts =====
+*.jar
+*.war
+*.ear
+
+# ===== Node / npm =====
+node_modules/
+**/node_modules/
+.next/
+out/
+dist/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Terraform plan files
+tfplan
+*.tfplan
+infra/terraform/envs/prod/tfplan.*
+
+# Admin UI is built by frontend-maven-plugin from apps/admin-ui/out/ at every
+# Maven build; nothing should ever live under src/main/resources/static for
+# ingress-auth-service. (Stale checked-in chunks caused the v20260505 "Edit URL
+# invisible" bug because they shadowed the fresh build.)
+services/ingress-auth-service/src/main/resources/static/

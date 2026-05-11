@@ -1,0 +1,41 @@
+spring:
+  autoconfigure:
+    # Keep OAuth2 off; we provide JPA via in-memory H2.
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+  datasource:
+    url: jdbc:h2:mem:tefca-ingress-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS ingress\;CREATE SCHEMA IF NOT EXISTS audit\;CREATE SCHEMA IF NOT EXISTS policy\;CREATE SCHEMA IF NOT EXISTS routing\;CREATE SCHEMA IF NOT EXISTS directory
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: sa
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+    show-sql: false
+
+tefca:
+  hmac:
+    secret: test-hmac-secret-do-not-use-in-prod
+  rate-limit:
+    requests-per-minute: 1000
+  security:
+    replay-protection:
+      # Tests reuse the same JWT and same correlation header repeatedly.
+      enabled: false
+  mtls:
+    enabled: false
+  services:
+    policy-url: http://localhost:8081
+    routing-url: http://localhost:8082
+  timeouts:
+    policy-ms: 1000
+    routing-ms: 1000
+
+logging:
+  level:
+    chit.tefca: DEBUG
+    org.hibernate: WARN

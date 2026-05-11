@@ -1,0 +1,32 @@
+# Profile: compose
+# Used by docker-compose.yml for full-stack local E2E testing.
+# Points the OIDC resource server at the local mock-jwt-issuer container.
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://mock-jwt:8090
+          jwk-set-uri: http://mock-jwt:8090/.well-known/jwks.json
+          audiences: tefca-gateway
+
+tefca:
+  mtls:
+    # Production-style mTLS in compose: NGINX sidecar terminates TLS 1.3 on
+    # :8443 and forwards the verified PEM in X-Client-Cert. PartnerCertificateLoader
+    # populates the in-memory trust store from ingress.partner_certificates
+    # (seeded by R004 from gen-certs.sh).
+    enabled: ${TEFCA_MTLS_ENABLED:true}
+    strict:  ${TEFCA_MTLS_STRICT:true}
+    refresh-interval-ms: 60000
+    fail-open-on-load-error: false
+  hmac:
+    # Local HMAC secret for outbound partner request signing. Rotated per env.
+    secret: ${TEFCA_HMAC_SECRET:local-dev-hmac-secret-change-me}
+  security:
+    replay-protection:
+      enabled: ${TEFCA_REPLAY_PROTECTION_ENABLED:true}
+
+logging:
+  level:
+    chit.tefca: DEBUG

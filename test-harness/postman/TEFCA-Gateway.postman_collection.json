@@ -1,0 +1,464 @@
+{
+  "info": {
+    "name": "TEFCA Gateway — Local E2E",
+    "_postman_id": "a8b2f0c0-1c2e-4d3a-9a11-tefca-postman-collection",
+    "description": "Manual end-to-end exercise of the C-HIT TEFCA Gateway running on the local docker-compose stack. Covers TEFCA partner traffic (XCPD / XCA-Q / XCA-R / XDR / FHIR proxy), policy evaluation, routing, directory lookup, admin auth + proxy, and observability surfaces. Ships with realistic seeded demographics (Jane Doe, John Smith, Maria Garcia) and known partner OIDs so every request returns a deterministic body.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "ingress",   "value": "http://localhost:8080" },
+    { "key": "policy",    "value": "http://localhost:8081" },
+    { "key": "routing",   "value": "http://localhost:8082" },
+    { "key": "directory", "value": "http://localhost:8083" },
+    { "key": "mockJwt",   "value": "http://localhost:8090" },
+    { "key": "wiremock",  "value": "http://localhost:8888" },
+    { "key": "orgId",     "value": "ORG-QHIN-001" },
+    { "key": "nodeId",    "value": "NODE-CW-001" },
+    { "key": "targetOrg", "value": "ORG-QHIN-002" },
+    { "key": "jwt",       "value": "" },
+    { "key": "adminToken","value": "" },
+    { "key": "correlationId", "value": "" },
+    { "key": "demoRuleId", "value": "DEMO-PM-001" }
+  ],
+  "item": [
+    {
+      "name": "0. Health & Bootstrap",
+      "item": [
+        {
+          "name": "Ingress liveness",
+          "request": {
+            "method": "GET",
+            "url": "{{ingress}}/actuator/health"
+          }
+        },
+        {
+          "name": "Policy liveness",
+          "request": { "method": "GET", "url": "{{policy}}/actuator/health" }
+        },
+        {
+          "name": "Routing liveness",
+          "request": { "method": "GET", "url": "{{routing}}/actuator/health" }
+        },
+        {
+          "name": "Directory liveness",
+          "request": { "method": "GET", "url": "{{directory}}/actuator/health" }
+        },
+        {
+          "name": "JWKS (mock OIDC)",
+          "request": { "method": "GET", "url": "{{mockJwt}}/.well-known/jwks.json" }
+        },
+        {
+          "name": "Mint partner JWT (saves to {{jwt}})",
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "const j = pm.response.json();",
+              "pm.collectionVariables.set('jwt', j.access_token);",
+              "pm.test('JWT minted', () => pm.expect(j.access_token).to.be.a('string'));"
+            ]}
+          }],
+          "request": {
+            "method": "POST",
+            "url": "{{mockJwt}}/token",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "org_id",  "value": "{{orgId}}"  },
+                { "key": "node_id", "value": "{{nodeId}}" },
+                { "key": "roles",   "value": "CLINICIAN,QHIN_ADMIN" },
+                { "key": "ttl_seconds", "value": "3600" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "1. Directory (read-only catalog)",
+      "item": [
+        {
+          "name": "List organizations",
+          "request": { "method": "GET", "url": "{{directory}}/api/v1/directory/organizations" }
+        },
+        {
+          "name": "Get organization by id",
+          "request": { "method": "GET", "url": "{{directory}}/api/v1/directory/organizations/ORG-QHIN-002" }
+        },
+        {
+          "name": "Lookup endpoint by org+modality",
+          "request": {
+            "method": "POST",
+            "url": "{{directory}}/api/v1/directory/endpoints/lookup",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"targetOrgId\": \"ORG-QHIN-002\",\n  \"modality\": \"XCPD\"\n}" }
+          }
+        },
+        {
+          "name": "Endpoints for org",
+          "request": { "method": "GET", "url": "{{directory}}/api/v1/directory/organizations/ORG-QHIN-001/endpoints" }
+        },
+        {
+          "name": "List nodes",
+          "request": { "method": "GET", "url": "{{directory}}/api/v1/directory/nodes" }
+        },
+        {
+          "name": "Cache version",
+          "request": { "method": "GET", "url": "{{directory}}/api/v1/admin/directory/cache/version" }
+        }
+      ]
+    },
+
+    {
+      "name": "2. Policy Engine",
+      "item": [
+        {
+          "name": "Evaluate — TREATMENT (PERMIT)",
+          "request": {
+            "method": "POST",
+            "url": "{{policy}}/api/v1/policy/evaluate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"correlationId\": \"pm-policy-treat-001\",\n  \"operation\": \"PATIENT_DISCOVERY\",\n  \"exchangePurpose\": \"TREATMENT\",\n  \"modality\": \"XCPD\",\n  \"requesterOrgId\": \"ORG-QHIN-001\",\n  \"requesterNodeId\": \"NODE-CW-001\",\n  \"targetOrgId\": \"ORG-QHIN-002\",\n  \"requesterRoles\": [\"CLINICIAN\"],\n  \"partnerAttributes\": { \"baaOnFile\": true, \"qhinStatus\": \"QHIN\", \"active\": true }\n}" }
+          }
+        },
+        {
+          "name": "Evaluate — MARKETING dataClass (DENY)",
+          "request": {
+            "method": "POST",
+            "url": "{{policy}}/api/v1/policy/evaluate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"correlationId\": \"pm-policy-mkt-001\",\n  \"operation\": \"PATIENT_DISCOVERY\",\n  \"exchangePurpose\": \"HEALTHCARE_OPERATIONS\",\n  \"modality\": \"XCPD\",\n  \"requesterOrgId\": \"ORG-QHIN-001\",\n  \"requesterNodeId\": \"NODE-CW-001\",\n  \"targetOrgId\": \"ORG-QHIN-002\",\n  \"dataClasses\": [\"MARKETING\"],\n  \"requesterRoles\": [\"CLINICIAN\"]\n}" }
+          }
+        },
+        {
+          "name": "Evaluate — Part 2 SUD without consent (DENY)",
+          "request": {
+            "method": "POST",
+            "url": "{{policy}}/api/v1/policy/evaluate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"correlationId\": \"pm-policy-sud-001\",\n  \"operation\": \"DOCUMENT_QUERY\",\n  \"exchangePurpose\": \"TREATMENT\",\n  \"modality\": \"XCA_QUERY\",\n  \"requesterOrgId\": \"ORG-QHIN-001\",\n  \"requesterNodeId\": \"NODE-CW-001\",\n  \"targetOrgId\": \"ORG-QHIN-002\",\n  \"dataClasses\": [\"SUBSTANCE_USE_DISORDER\"],\n  \"requesterRoles\": [\"CLINICIAN\"]\n}" }
+          }
+        },
+        {
+          "name": "Evaluate — Breakglass with justification (PERMIT)",
+          "request": {
+            "method": "POST",
+            "url": "{{policy}}/api/v1/policy/evaluate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"correlationId\": \"pm-policy-bg-001\",\n  \"operation\": \"DOCUMENT_RETRIEVE\",\n  \"exchangePurpose\": \"EMERGENCY\",\n  \"modality\": \"XCA_RETRIEVE\",\n  \"requesterOrgId\": \"ORG-QHIN-001\",\n  \"requesterNodeId\": \"NODE-CW-001\",\n  \"targetOrgId\": \"ORG-QHIN-002\",\n  \"patientId\": \"patient-doe-001\",\n  \"breakglass\": true,\n  \"breakglassJustification\": \"Unconscious trauma patient in ED — TEFCA SOP §6.4\",\n  \"requesterRoles\": [\"CLINICIAN\",\"BREAKGLASS\"],\n  \"partnerAttributes\": { \"baaOnFile\": true, \"qhinStatus\": \"QHIN\", \"active\": true }\n}" }
+          }
+        },
+        {
+          "name": "Evaluate — Public Health to PUBLIC_HEALTH partner (PERMIT)",
+          "request": {
+            "method": "POST",
+            "url": "{{policy}}/api/v1/policy/evaluate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"correlationId\": \"pm-policy-ph-001\",\n  \"operation\": \"MESSAGE_DELIVERY\",\n  \"exchangePurpose\": \"PUBLIC_HEALTH\",\n  \"modality\": \"XDR\",\n  \"requesterOrgId\": \"ORG-QHIN-001\",\n  \"requesterNodeId\": \"NODE-CW-001\",\n  \"targetOrgId\": \"ORG-PUB-001\",\n  \"requesterRoles\": [\"SYSTEM\",\"CLINICIAN\"],\n  \"partnerAttributes\": { \"baaOnFile\": true, \"qhinStatus\": \"PARTICIPANT\", \"active\": true }\n}" }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "3. Policy Admin (CRUD)",
+      "item": [
+        {
+          "name": "List rules",
+          "request": { "method": "GET", "url": "{{policy}}/api/v1/admin/policy/rules" }
+        },
+        {
+          "name": "Get rule by id",
+          "request": { "method": "GET", "url": "{{policy}}/api/v1/admin/policy/rules/HIPAA-PR-SALE-OF-PHI" }
+        },
+        {
+          "name": "Create rule",
+          "event": [{ "listen": "prerequest", "script": { "exec": [
+            "pm.collectionVariables.set('demoRuleId', 'DEMO-PM-' + Date.now());"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{policy}}/api/v1/admin/policy/rules",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"ruleId\": \"{{demoRuleId}}\",\n  \"ruleName\": \"Demo: Block Saturday writes\",\n  \"category\": \"OPERATIONAL\",\n  \"description\": \"Demo rule created from Postman to validate admin CRUD.\",\n  \"ruleExpression\": \"timestamp.dayOfWeek == SATURDAY && request.operation == 'MESSAGE_DELIVERY' -> DENY (operational:demo)\",\n  \"priority\": 500,\n  \"active\": true,\n  \"changedBy\": \"postman@local\",\n  \"changeReason\": \"Postman smoke test\"\n}" }
+          }
+        },
+        {
+          "name": "Update rule",
+          "request": {
+            "method": "PUT",
+            "url": "{{policy}}/api/v1/admin/policy/rules/{{demoRuleId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"ruleId\": \"{{demoRuleId}}\",\n  \"ruleName\": \"Demo: Block Saturday writes (v2)\",\n  \"category\": \"OPERATIONAL\",\n  \"description\": \"Updated via Postman.\",\n  \"ruleExpression\": \"timestamp.dayOfWeek == SATURDAY -> DENY (operational:demo-v2)\",\n  \"priority\": 510,\n  \"active\": false,\n  \"changedBy\": \"postman@local\",\n  \"changeReason\": \"Lower priority and disable\"\n}" }
+          }
+        },
+        {
+          "name": "Rule history",
+          "request": { "method": "GET", "url": "{{policy}}/api/v1/admin/policy/rules/{{demoRuleId}}/history" }
+        },
+        {
+          "name": "Audit entries (paged)",
+          "request": { "method": "GET", "url": "{{policy}}/api/v1/admin/policy/audit-entries?page=0&size=20" }
+        },
+        {
+          "name": "Delete rule",
+          "request": { "method": "DELETE", "url": "{{policy}}/api/v1/admin/policy/rules/{{demoRuleId}}" }
+        }
+      ]
+    },
+
+    {
+      "name": "4. Routing (low-level)",
+      "item": [
+        {
+          "name": "Route — XCPD to ORG-QHIN-002",
+          "request": {
+            "method": "POST",
+            "url": "{{routing}}/api/v1/routing/route",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"correlationId\": \"pm-route-xcpd-001\",\n  \"operation\": \"PATIENT_DISCOVERY\",\n  \"modality\": \"XCPD\",\n  \"requesterOrgId\": \"ORG-QHIN-001\",\n  \"targetOrgId\": \"ORG-QHIN-002\",\n  \"idempotencyKey\": \"idem-pm-route-xcpd-001\",\n  \"payload\": {\n    \"patientFirstName\": \"Jane\",\n    \"patientLastName\": \"Doe\",\n    \"patientDateOfBirth\": \"1980-01-15\",\n    \"patientGender\": \"F\"\n  }\n}" }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "5. Ingress — TEFCA Partner Traffic (Bearer JWT)",
+      "item": [
+        {
+          "name": "Patient Discovery — Jane Doe (match)",
+          "event": [{ "listen": "prerequest", "script": { "exec": [
+            "pm.collectionVariables.set('correlationId', 'pm-pd-' + Date.now());"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "{{correlationId}}" },
+              { "key": "X-Idempotency-Key", "value": "{{correlationId}}-idem" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-QHIN-001\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — John Smith (match)",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-smith-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-smith-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"John\",\n  \"patientLastName\": \"Smith\",\n  \"patientDateOfBirth\": \"1975-07-04\",\n  \"patientGender\": \"M\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-QHIN-001\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — Maria Garcia (pediatric)",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-garcia-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-garcia-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Maria\",\n  \"patientLastName\": \"Garcia\",\n  \"patientDateOfBirth\": \"2018-09-22\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-SUB-003\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — no-match",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-nomatch-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-nomatch-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Nobody\",\n  \"patientLastName\": \"Findme\",\n  \"patientDateOfBirth\": \"1900-01-01\",\n  \"patientGender\": \"U\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-QHIN-001\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — MARKETING dataClass (policy DENY)",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-mkt-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-mkt-001" },
+              { "key": "X-Tefca-Data-Classes", "value": "MARKETING" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"HEALTHCARE_OPERATIONS\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-QHIN-001\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — no Bearer (401)",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-QHIN-001\"\n}" }
+          }
+        },
+        {
+          "name": "Document Query — C-CDA for Jane Doe",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/document-query",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-dq-doe-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-dq-doe-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientId\": \"patient-doe-001\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-QHIN-001\",\n  \"documentType\": \"C-CDA\",\n  \"dateFrom\": \"2024-01-01\",\n  \"dateTo\": \"2026-04-26\"\n}" }
+          }
+        },
+        {
+          "name": "Document Retrieve — fetch CCD",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/document-retrieve",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-dr-doe-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-dr-doe-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"documentId\": \"doc-001\",\n  \"repositoryId\": \"REPO-CW-001\",\n  \"patientId\": \"patient-doe-001\",\n  \"targetOrgId\": \"ORG-QHIN-001\"\n}" }
+          }
+        },
+        {
+          "name": "Message Delivery — DIRECT to Hospital",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/message-delivery",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-md-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-md-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"targetOrgId\": \"ORG-SUB-001\",\n  \"messageType\": \"DIRECT\",\n  \"patientId\": \"patient-doe-001\",\n  \"messageBody\": {\n    \"subject\": \"Discharge summary — Jane Doe\",\n    \"body\": \"Patient discharged 2026-04-26. Follow-up in 7d.\",\n    \"attachments\": []\n  }\n}" }
+          }
+        },
+        {
+          "name": "Message Delivery — Public Health report",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/message-delivery",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-md-ph-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-md-ph-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"PUBLIC_HEALTH\",\n  \"targetOrgId\": \"ORG-PUB-001\",\n  \"messageType\": \"ELR\",\n  \"messageBody\": {\n    \"reportType\": \"reportable_condition\",\n    \"loincCode\": \"94310-0\",\n    \"observation\": \"SARS-CoV-2 RNA, positive\"\n  }\n}" }
+          }
+        },
+        {
+          "name": "Replay — same JWT + correlation (REPLAY_DETECTED)",
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-replay-001" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-replay-001" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"ORG-QHIN-001\"\n}" }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "6. Admin Console",
+      "item": [
+        {
+          "name": "Login (saves {{adminToken}} + cookie)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const j = pm.response.json();",
+            "if (j.access_token) pm.collectionVariables.set('adminToken', j.access_token);",
+            "pm.test('login ok', () => pm.expect(pm.response.code).to.eql(200));"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{ingress}}/api/admin/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"admin@local\",\n  \"password\": \"tefca-admin\"\n}" }
+          }
+        },
+        {
+          "name": "Who am I (cookie auth)",
+          "request": { "method": "GET", "url": "{{ingress}}/api/admin/auth/me" }
+        },
+        {
+          "name": "List operator accounts",
+          "request": { "method": "GET", "url": "{{ingress}}/api/admin/auth/accounts" }
+        },
+        {
+          "name": "Proxy → policy rules",
+          "request": {
+            "method": "GET",
+            "url": "{{ingress}}/api/admin/proxy/policy/api/v1/admin/policy/rules",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }]
+          }
+        },
+        {
+          "name": "Proxy → directory orgs",
+          "request": {
+            "method": "GET",
+            "url": "{{ingress}}/api/admin/proxy/directory/api/v1/directory/organizations",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }]
+          }
+        },
+        {
+          "name": "Proxy → policy audit entries (paged)",
+          "request": {
+            "method": "GET",
+            "url": "{{ingress}}/api/admin/proxy/policy/api/v1/admin/policy/audit-entries?page=0&size=10",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }]
+          }
+        },
+        {
+          "name": "Logout",
+          "request": { "method": "POST", "url": "{{ingress}}/api/admin/auth/logout" }
+        }
+      ]
+    },
+
+    {
+      "name": "7. Observability",
+      "item": [
+        {
+          "name": "Ingress prometheus",
+          "request": { "method": "GET", "url": "{{ingress}}/actuator/prometheus" }
+        },
+        {
+          "name": "Ingress info",
+          "request": { "method": "GET", "url": "{{ingress}}/actuator/info" }
+        },
+        {
+          "name": "Wiremock — recorded requests",
+          "request": { "method": "GET", "url": "{{wiremock}}/__admin/requests" }
+        },
+        {
+          "name": "Wiremock — reset request log",
+          "request": { "method": "DELETE", "url": "{{wiremock}}/__admin/requests" }
+        }
+      ]
+    }
+  ]
+}

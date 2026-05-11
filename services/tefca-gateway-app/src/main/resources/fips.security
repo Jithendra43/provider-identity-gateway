@@ -1,0 +1,16 @@
+# =============================================================================
+# TEFCA Gateway — FIPS 140-3 JVM tuning
+#
+# Loaded via -Djava.security.properties=/app/fips.security (single '=' to MERGE
+# with the JDK's default java.security file, NOT replace it).
+#
+# Note: BCFIPS / BCJSSE providers are registered programmatically in
+# TefcaGatewayApplication.main() because in a Spring Boot fat-jar layout the
+# bc-fips jar lives in BOOT-INF/lib/ and is NOT on the system classpath at
+# JVM init — so security.provider.N=org.bouncycastle... lines here would be
+# silently dropped by the JDK (ClassNotFoundException at provider load time).
+# =============================================================================
+
+# Force PKIX for X.509 path validation (FIPS-approved)
+ssl.KeyManagerFactory.algorithm=PKIX
+ssl.TrustManagerFactory.algorithm=PKIX
