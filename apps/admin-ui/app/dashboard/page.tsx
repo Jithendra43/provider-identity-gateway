@@ -1,7 +1,8 @@
 'use client';
 import { AppShell } from '@/components/AppShell';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { Card, PageHeader, StatTile, Badge } from '@/components/ui';
 import { Sparkline, HBarChart, Donut } from '@/components/charts';
 
@@ -9,11 +10,19 @@ type Health = { status: string; components?: Record<string, any> };
 type ObsRow = Awaited<ReturnType<typeof api.observability>>[number];
 
 export default function DashboardPage() {
+  const { refresh } = useAuth();
   const [health, setHealth] = useState<Record<string, Health | { error: string }>>({});
   const [policyCount, setPolicyCount] = useState<number | null>(null);
   const [auditCount, setAuditCount] = useState<number | null>(null);
   const [recentDecisions, setRecentDecisions] = useState<any[]>([]);
   const [obs, setObs] = useState<ObsRow[]>([]);
+
+  // Re-check auth whenever a proxy call returns 401 (session expired / logged
+  // out in another tab). If the session is gone, AuthProvider.refresh() sets
+  // operator=null and the route guard redirects to /admin/welcome/.
+  const on401 = useCallback(async (e: any) => {
+    if (e?.status === 401) await refresh();
+  }, [refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,6 +32,7 @@ export default function DashboardPage() {
           const h = await api.health(svc);
           if (!cancelled) setHealth((p) => ({ ...p, [svc]: h }));
         } catch (e: any) {
+          await on401(e);
           if (!cancelled) {
             setHealth((p) => ({
               ...p,
@@ -36,20 +46,20 @@ export default function DashboardPage() {
       try {
         const p = await api.policyRules();
         if (!cancelled) setPolicyCount(p.length);
-      } catch {}
+      } catch (e: any) { await on401(e); }
       try {
         const a = await api.policyAuditEntries({ size: 10, page: 0 });
         if (!cancelled) {
           setAuditCount(a.totalElements);
           setRecentDecisions(a.content);
         }
-      } catch {}
+      } catch (e: any) { await on401(e); }
     };
     const tickObs = async () => {
       try {
         const o = await api.observability();
         if (!cancelled) setObs(o);
-      } catch {}
+      } catch (e: any) { await on401(e); }
     };
     tickHealth();
     tickPolicy();
@@ -63,7 +73,7 @@ export default function DashboardPage() {
       clearInterval(i2);
       clearInterval(i3);
     };
-  }, []);
+  }, [on401]);
 
   const upCount = Object.values(health).filter((h: any) => h?.status === 'UP').length;
 
