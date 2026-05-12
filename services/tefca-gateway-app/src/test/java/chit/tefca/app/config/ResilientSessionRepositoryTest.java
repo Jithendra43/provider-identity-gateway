@@ -1,5 +1,8 @@
 package chit.tefca.app.config;
 
+import java.util.Map;
+import java.util.function.Consumer;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -8,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.RedisSystemException;
+import org.springframework.session.MapSession;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 
@@ -254,6 +258,49 @@ class ResilientSessionRepositoryTest {
             Object otherBean = new Object();
             Object result = bpp.postProcessAfterInitialization(otherBean, "someOtherBean");
             assertThat(result).isSameAs(otherBean);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ResilientRedisSessionMapper — malformed session must trigger the
+    // onMalformed callback so the partial hash is deleted from Redis
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("ResilientRedisSessionMapper")
+    class ResilientRedisSessionMapperTest {
+
+        /**
+         * A map with only {@code lastAccessedTime} (no {@code creationTime})
+         * mirrors the exact partial hash written by the logout+delta-save race.
+         * {@link org.springframework.session.data.redis.RedisSessionMapper} throws
+         * {@code IllegalStateException("creationTime key must not be null")} which
+         * our wrapper must catch, invoke the callback with the session ID, and
+         * return {@code null}.
+         */
+        @Test
+        @DisplayName("invokes onMalformed callback and returns null for a partial hash missing creationTime")
+        void invokesCallbackAndReturnsNullForMalformedSession() {
+            @SuppressWarnings("unchecked")
+            Consumer<String> callback = mock(Consumer.class);
+            var mapper = new RedisSessionConfig.ResilientRedisSessionMapper(callback);
+
+            MapSession result = mapper.apply("partial-id", Map.of("lastAccessedTime", 1L));
+
+            assertThat(result).isNull();
+            verify(callback).accept("partial-id");
+        }
+
+        @Test
+        @DisplayName("no-arg constructor uses a no-op callback and does not throw")
+        void noArgConstructorUsesNoOpCallback() {
+            // Should complete without NPE or any exception even though no
+            // StringRedisTemplate is wired (callback is a no-op lambda).
+            var mapper = new RedisSessionConfig.ResilientRedisSessionMapper();
+
+            MapSession result = mapper.apply("noop-id", Map.of("lastAccessedTime", 1L));
+
+            assertThat(result).isNull();
         }
     }
 }

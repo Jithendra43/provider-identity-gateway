@@ -272,6 +272,15 @@ public class AppSecurityConfig {
                 .logoutSuccessHandler(cognitoLogoutSuccessHandler(clientRegistrationRepository))
                 .invalidateHttpSession(true)
                 .deleteCookies("JSESSIONID", adminProperties.getCookieName())
+                // Explicitly clear the Spring Session cookie. deleteCookies() uses a
+                // basic Cookie with no Secure/SameSite attributes which some browsers
+                // will ignore for a Secure+SameSite=Lax cookie. We write the header
+                // directly to guarantee the browser drops the stale SESSION cookie and
+                // does not keep sending it (which would produce 401s on subsequent
+                // requests after the server-side session has been deleted from Redis).
+                .addLogoutHandler((req, res, auth) ->
+                    res.addHeader("Set-Cookie",
+                        "SESSION=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"))
                 .permitAll()
             );
             // Browser requests to /admin/** must be redirected to the
