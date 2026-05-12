@@ -10,7 +10,7 @@ INSERT INTO directory.directory_organizations
 VALUES
     ('ORG-QHIN-003', 'Epic Nexus QHIN',          '2.16.840.1.113883.3.7204', 'QHIN',            true, 'urn:oid:2.16.840.1.113883.3.7204'),
     ('ORG-SUB-002',  'Northside Clinic Network',  '2.16.840.1.113883.3.8888', 'SUB_PARTICIPANT', true, 'urn:oid:2.16.840.1.113883.3.8888'),
-    ('ORG-SUB-003',  'Coastal Pediatrics',        '2.16.840.1.113883.3.7777', 'SUB_PARTICIPANT', true, 'urn:oid:2.16.840.1.113883.3.7777'),
+    ('ORG-SUB-003',  'Coastal Pediatrics',        '2.16.840.1.113883.3.7778', 'SUB_PARTICIPANT', true, 'urn:oid:2.16.840.1.113883.3.7778'),
     ('ORG-PUB-001',  'StateLab Public Health',    '2.16.840.1.113883.3.5555', 'PUBLIC_HEALTH',   true, 'urn:oid:2.16.840.1.113883.3.5555')
 ON CONFLICT (org_id) DO NOTHING;
 
@@ -19,7 +19,7 @@ INSERT INTO directory.directory_nodes
 VALUES
     ('NODE-EPIC-001',  'ORG-QHIN-003', 'Epic Nexus Primary Node',     'urn:oid:2.16.840.1.113883.3.7204.1', 'ACTIVE'),
     ('NODE-NORTH-001', 'ORG-SUB-002',  'Northside Clinic Node',       'urn:oid:2.16.840.1.113883.3.8888.1', 'ACTIVE'),
-    ('NODE-COAST-001', 'ORG-SUB-003',  'Coastal Pediatrics Node',     'urn:oid:2.16.840.1.113883.3.7777.1', 'ACTIVE'),
+    ('NODE-COAST-001', 'ORG-SUB-003',  'Coastal Pediatrics Node',     'urn:oid:2.16.840.1.113883.3.7778.1', 'ACTIVE'),
     ('NODE-PHIE-001',  'ORG-PUB-001',  'Public Health Reporting Node','urn:oid:2.16.840.1.113883.3.5555.1', 'ACTIVE')
 ON CONFLICT (node_id) DO NOTHING;
 

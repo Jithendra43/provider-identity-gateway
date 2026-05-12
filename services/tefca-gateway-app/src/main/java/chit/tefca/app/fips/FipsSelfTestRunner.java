@@ -1,6 +1,7 @@
 package chit.tefca.app.fips;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -17,9 +18,10 @@ import java.security.Security;
  * <p>Activated whenever the {@code TEFCA_FIPS_ENABLED} environment variable is
  * {@code true} (set by Terraform on the ECS task definition).</p>
  */
-@Slf4j
 @Component
 public class FipsSelfTestRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(FipsSelfTestRunner.class);
 
     @EventListener(ApplicationReadyEvent.class)
     public void verifyFipsProviders() {

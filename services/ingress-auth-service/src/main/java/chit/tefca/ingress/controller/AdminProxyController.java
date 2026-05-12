@@ -146,12 +146,19 @@ public class AdminProxyController {
             }
         }
 
+        // Attach the request body after all headers are set. bodyValue() returns
+        // RequestHeadersSpec<?>, not RequestBodySpec, so a cast would throw a
+        // ClassCastException on any PUT/POST/PATCH with a body.  Use a separate
+        // typed variable to avoid the cast entirely.
+        WebClient.RequestHeadersSpec<?> headersSpec;
         if (body != null && body.length > 0) {
             String ct = request.getContentType() != null ? request.getContentType() : "application/octet-stream";
-            spec = (WebClient.RequestBodySpec) spec.contentType(MediaType.parseMediaType(ct)).bodyValue(body);
+            headersSpec = spec.contentType(MediaType.parseMediaType(ct)).bodyValue(body);
+        } else {
+            headersSpec = spec;
         }
 
-        return spec.exchangeToMono(resp ->
+        return headersSpec.exchangeToMono(resp ->
                         resp.bodyToMono(byte[].class)
                                 .defaultIfEmpty(new byte[0])
                                 .map(b -> {

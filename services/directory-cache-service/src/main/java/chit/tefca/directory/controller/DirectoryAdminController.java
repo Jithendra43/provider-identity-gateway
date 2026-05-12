@@ -72,8 +72,8 @@ public class DirectoryAdminController {
      * the new value on the next lookup.
      */
     @PatchMapping("/endpoints/{endpointId}")
-    public ResponseEntity<DirectoryEndpoint> updateEndpoint(@PathVariable String endpointId,
-                                                            @RequestBody Map<String, Object> body) {
+    public ResponseEntity<Map<String, Object>> updateEndpoint(@PathVariable String endpointId,
+                                                              @RequestBody Map<String, Object> body) {
         Object urlVal = body.get("url");
         Object activeVal = body.get("active");
         DirectoryEndpoint updated = directoryAdminService.updateEndpoint(
@@ -81,7 +81,16 @@ public class DirectoryAdminController {
                 urlVal != null ? urlVal.toString() : null,
                 activeVal instanceof Boolean b ? b : null
         );
-        return ResponseEntity.ok(updated);
+        // Return a plain map instead of the entity to avoid lazy-initialization of
+        // Hibernate proxies (node → organization) after the transaction has ended.
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("endpointId",  updated.getEndpointId());
+        resp.put("nodeId",      updated.getNodeId());
+        resp.put("url",         updated.getUrl());
+        resp.put("modality",    updated.getModality() != null ? updated.getModality().name() : null);
+        resp.put("active",      updated.isActive());
+        resp.put("updatedAt",   updated.getUpdatedAt());
+        return ResponseEntity.ok(resp);
     }
 
     /**

@@ -20,6 +20,7 @@ import org.springframework.security.oauth2.client.authentication.OAuth2Authentic
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.*;
@@ -66,12 +67,15 @@ public class AdminAuthController {
     @PostMapping("/logout")
     public ResponseEntity<Map<String, Object>> logout(HttpServletRequest request,
                                                       HttpServletResponse response) {
-        // Invalidate the server-side HTTP session (JSESSIONID) so that OIDC
-        // (Cognito) sessions are fully terminated, not just the mock cookie.
-        jakarta.servlet.http.HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
-        }
+        // Delegate session teardown to Spring Security's logout handler so it
+        // clears the SecurityContext and invalidates the session in the correct
+        // order before the response is committed. Manual HttpSession.invalidate()
+        // marks the session invalid but leaves SessionRepositoryFilter to call
+        // RedisSessionRepository.save() on the already-invalidated session during
+        // response-commit, which throws IllegalStateException and cascades into a
+        // 500 on every subsequent admin endpoint until the next deploy.
+        new SecurityContextLogoutHandler()
+                .logout(request, response, SecurityContextHolder.getContext().getAuthentication());
         // Hardened logout cookie: HttpOnly + Secure + SameSite=Strict, MaxAge=0.
         ResponseCookie cookie = ResponseCookie.from(properties.getCookieName(), "")
                 .path("/")
