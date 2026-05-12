@@ -10,7 +10,8 @@ import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -43,14 +44,14 @@ import com.nimbusds.jwt.JWTClaimsSet;
  * <p>Disabled in production by default — toggle with
  * {@code tefca.mock-pa.enabled=true}.</p>
  */
-@Slf4j
 @RestController
 @RequestMapping("/mock-pa")
 @RequiredArgsConstructor
 @ConditionalOnProperty(value = "tefca.mock-pa.enabled", havingValue = "true")
 public class MockPaController {
 
-    private static final String EXPECTED_ISSUER = "tefca-gateway-internal";
+        private static final String EXPECTED_ISSUER = "tefca-gateway-internal";
+        private static final Logger log = LoggerFactory.getLogger(MockPaController.class);
 
     private final RSAKey signingKey;
     private ConfigurableJWTProcessor<SecurityContext> jwtProcessor;

@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
 
@@ -87,6 +88,13 @@ public class GlobalExceptionHandler {
         log.warn("Authentication failed on {}: {}", request.getRequestURI(), ex.getMessage());
         return buildResponse(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED",
                 "Authentication required", request);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(NoResourceFoundException ex, HttpServletRequest request) {
+        log.debug("No handler found for {} {}", request.getMethod(), request.getRequestURI());
+        return buildResponse(HttpStatus.NOT_FOUND, "NOT_FOUND",
+                "The requested resource was not found", request);
     }
 
     @ExceptionHandler(Exception.class)

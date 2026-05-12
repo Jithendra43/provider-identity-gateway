@@ -14,21 +14,21 @@
 
 INSERT INTO ingress.partner_certificates
     (certificate_id, partner_id, thumbprint, subject_dn, issuer_dn, serial_number, not_before, not_after, active)
-SELECT 'CERT-LOCAL-PART-CW-001', p.partner_id, '762a787fc2bce8e2e1ce57ed41545363778efed8a34621e3dc2c7ffe76626cfc', 'C=US, ST=DC, O=CommonWell QHIN, OU=TEFCA QHIN Partner, CN=ORG-QHIN-001.qhin.commonwellalliance.local', 'C=US, ST=DC, O=C-HIT TEFCA Test CA, OU=Local Development Only, CN=TEFCA Local Root CA', '432487FEFA7D9C98B86509626F12AC1BD98EA713', '2026-04-28 22:47:33+00', '2028-07-31 22:47:33+00', TRUE
+SELECT 'CERT-LOCAL-PART-CW-001', p.partner_id, 'f4047565673cbfd68af452ff9a3b8479e925168a5807f19ed8b47d3ade201db6', 'C=US, ST=DC, O=CommonWell QHIN, OU=TEFCA QHIN Partner, CN=ORG-QHIN-001.qhin.commonwellalliance.local', 'C=US, ST=DC, O=C-HIT TEFCA Test CA, OU=Local Development Only, CN=TEFCA Local Root CA', '5D756933DA4E9DA0499BC4426A8EB5F1E2AC888D', '2026-05-12 00:03:52+00', '2028-08-14 00:03:52+00', TRUE
 FROM ingress.partners p
 WHERE p.org_id = 'ORG-QHIN-001'
 ON CONFLICT (thumbprint) DO NOTHING;
 
 INSERT INTO ingress.partner_certificates
     (certificate_id, partner_id, thumbprint, subject_dn, issuer_dn, serial_number, not_before, not_after, active)
-SELECT 'CERT-LOCAL-PART-EHX-001', p.partner_id, 'c7a7916927a0f3661e146d7a960cbf29b6c5a078446d618f11b6e63416379021', 'C=US, ST=DC, O=eHealth Exchange QHIN, OU=TEFCA QHIN Partner, CN=ORG-QHIN-002.qhin.ehealthexchange.local', 'C=US, ST=DC, O=C-HIT TEFCA Test CA, OU=Local Development Only, CN=TEFCA Local Root CA', '432487FEFA7D9C98B86509626F12AC1BD98EA714', '2026-04-28 22:47:34+00', '2028-07-31 22:47:34+00', TRUE
+SELECT 'CERT-LOCAL-PART-EHX-001', p.partner_id, 'a66c91a76e66c24639f1b863c70f19ec7959229113c667639dce8d1ccc7cb7ad', 'C=US, ST=DC, O=eHealth Exchange QHIN, OU=TEFCA QHIN Partner, CN=ORG-QHIN-002.qhin.ehealthexchange.local', 'C=US, ST=DC, O=C-HIT TEFCA Test CA, OU=Local Development Only, CN=TEFCA Local Root CA', '5D756933DA4E9DA0499BC4426A8EB5F1E2AC888E', '2026-05-12 00:03:53+00', '2028-08-14 00:03:53+00', TRUE
 FROM ingress.partners p
 WHERE p.org_id = 'ORG-QHIN-002'
 ON CONFLICT (thumbprint) DO NOTHING;
 
 INSERT INTO ingress.partner_certificates
     (certificate_id, partner_id, thumbprint, subject_dn, issuer_dn, serial_number, not_before, not_after, active)
-SELECT 'CERT-LOCAL-PART-EPIC-001', p.partner_id, '557326e50f34cb77a5a09ef126dfbd8b659f346f666987d65ac2c9e42be6db93', 'C=US, ST=DC, O=Epic Nexus QHIN, OU=TEFCA QHIN Partner, CN=ORG-QHIN-003.qhin.epic.local', 'C=US, ST=DC, O=C-HIT TEFCA Test CA, OU=Local Development Only, CN=TEFCA Local Root CA', '432487FEFA7D9C98B86509626F12AC1BD98EA715', '2026-04-28 22:47:34+00', '2028-07-31 22:47:34+00', TRUE
+SELECT 'CERT-LOCAL-PART-EPIC-001', p.partner_id, '4ec08cf35d237cd207c36e50b4438a1e661e95f90baa986f9fb937d6ef67b7e2', 'C=US, ST=DC, O=Epic Nexus QHIN, OU=TEFCA QHIN Partner, CN=ORG-QHIN-003.qhin.epic.local', 'C=US, ST=DC, O=C-HIT TEFCA Test CA, OU=Local Development Only, CN=TEFCA Local Root CA', '5D756933DA4E9DA0499BC4426A8EB5F1E2AC888F', '2026-05-12 00:03:53+00', '2028-08-14 00:03:53+00', TRUE
 FROM ingress.partners p
 WHERE p.org_id = 'ORG-QHIN-003'
 ON CONFLICT (thumbprint) DO NOTHING;

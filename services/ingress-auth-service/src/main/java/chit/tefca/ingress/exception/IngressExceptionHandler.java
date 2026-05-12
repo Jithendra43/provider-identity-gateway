@@ -88,6 +88,21 @@ public class IngressExceptionHandler {
                 "Authentication required");
     }
 
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<?> handleIllegalState(IllegalStateException ex) {
+        // A race between logout and response-commit causes SessionRepositoryFilter
+        // to call RedisSessionRepository.save() on a session that has already been
+        // invalidated. The ResilientSessionRepository wrapper (Phase 1) suppresses
+        // this on the save path, but if the exception escapes any other path it
+        // must be handled here as a no-op (the session is gone — 204 is correct).
+        if ("Session was invalidated".equals(ex.getMessage())) {
+            log.debug("Session already invalidated during response commit — returning 204 (no-op)");
+            return ResponseEntity.noContent().build();
+        }
+        log.error("Unhandled IllegalStateException in ingress", ex);
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An internal error occurred");
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<TefcaResponse> handleGeneral(Exception ex) {
         log.error("Unhandled exception in ingress", ex);
