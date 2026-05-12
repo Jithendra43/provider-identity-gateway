@@ -11,6 +11,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.dao.DataAccessException;
 import org.springframework.session.MapSession;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
@@ -171,6 +172,8 @@ public class RedisSessionConfig {
                 } else {
                     throw ex;
                 }
+            } catch (DataAccessException ex) {
+                REPO_LOG.warn("Suppressing save() Redis error (transient key-not-found / RENAME race) — treating as no-op: {}", ex.getMessage());
             }
         }
 
@@ -188,6 +191,9 @@ public class RedisSessionConfig {
                     return null;
                 }
                 throw ex;
+            } catch (DataAccessException ex) {
+                REPO_LOG.warn("Suppressing findById() Redis error for session '{}' — returning null (transient): {}", id, ex.getMessage());
+                return null;
             }
         }
 
@@ -204,6 +210,8 @@ public class RedisSessionConfig {
                 } else {
                     throw ex;
                 }
+            } catch (DataAccessException ex) {
+                REPO_LOG.warn("Suppressing deleteById() Redis error for session '{}' — treating as already deleted (transient): {}", id, ex.getMessage());
             }
         }
     }

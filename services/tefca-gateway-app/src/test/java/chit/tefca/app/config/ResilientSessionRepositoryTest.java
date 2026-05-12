@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 
@@ -117,6 +118,15 @@ class ResilientSessionRepositoryTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessage("Redis connection refused");
         }
+
+        @Test
+        @DisplayName("swallows DataAccessException (Redis RENAME race) without propagating")
+        void swallowsDataAccessException() {
+            doThrow(new RedisSystemException("ERR no such key", null))
+                    .when(mockDelegate).save(any());
+
+            assertThatNoException().isThrownBy(() -> resilient.save(mockSession));
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -168,6 +178,17 @@ class ResilientSessionRepositoryTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessage("Unexpected Redis error");
         }
+
+        @Test
+        @DisplayName("returns null on DataAccessException (Redis transient error)")
+        void returnsNullOnDataAccessException() {
+            when(mockDelegate.findById(anyString()))
+                    .thenThrow(new RedisSystemException("ERR no such key", null));
+
+            Session result = resilient.findById("sid-redis-err");
+
+            assertThat(result).isNull();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -206,6 +227,15 @@ class ResilientSessionRepositoryTest {
             assertThatThrownBy(() -> resilient.deleteById("sid-locked"))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessage("Lock held");
+        }
+
+        @Test
+        @DisplayName("swallows DataAccessException (Redis transient error) treating delete as idempotent")
+        void swallowsDataAccessException() {
+            doThrow(new RedisSystemException("ERR no such key", null))
+                    .when(mockDelegate).deleteById(anyString());
+
+            assertThatNoException().isThrownBy(() -> resilient.deleteById("sid-redis-gone"));
         }
     }
 
