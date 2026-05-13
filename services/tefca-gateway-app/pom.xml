@@ -63,17 +63,12 @@
             <artifactId>micrometer-registry-cloudwatch2</artifactId>
         </dependency>
 
-        <!-- Spring Session backed by Redis — persists JSESSIONID across pod
-             restarts and rolling deploys so Cognito sessions are not lost.
-             Version managed by spring-boot-starter-parent BOM. -->
+        <!-- Spring Session in-memory (MapSessionRepository). Single ECS task —
+             no cross-pod replication required. Sessions reset on restart;
+             OIDC re-login is transparent. -->
         <dependency>
             <groupId>org.springframework.session</groupId>
-            <artifactId>spring-session-data-redis</artifactId>
-        </dependency>
-        <!-- Lettuce (async Netty Redis client) — preferred for ElastiCache TLS -->
-        <dependency>
-            <groupId>io.lettuce</groupId>
-            <artifactId>lettuce-core</artifactId>
+            <artifactId>spring-session-core</artifactId>
         </dependency>
 
         <!-- BouncyCastle FIPS — registered via java.security override in

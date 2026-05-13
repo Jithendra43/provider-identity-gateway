@@ -277,7 +277,7 @@ public class AppSecurityConfig {
                 // will ignore for a Secure+SameSite=Lax cookie. We write the header
                 // directly to guarantee the browser drops the stale SESSION cookie and
                 // does not keep sending it (which would produce 401s on subsequent
-                // requests after the server-side session has been deleted from Redis).
+                // requests after the server-side session has been invalidated).
                 .addLogoutHandler((req, res, auth) ->
                     res.addHeader("Set-Cookie",
                         "SESSION=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"))
