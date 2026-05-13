@@ -1,7 +1,7 @@
 # Local end-to-end test driver. Run from tefca-gateway/ root.
 SHELL := /bin/bash
 
-.PHONY: help build up up-mtls down logs e2e clean reset shell-pg shell-redis load-test \
+.PHONY: help build up up-mtls down logs e2e clean reset shell-pg load-test \
         certs certs-clean test-security postman-mtls postman-security
 
 help:
@@ -19,7 +19,6 @@ help:
 	@echo "  make postman-mtls  - run the Postman collection through the mTLS edge"
 	@echo "  make logs     - tail logs (CTRL-C to exit)"
 	@echo "  make shell-pg - psql shell into postgres"
-	@echo "  make shell-redis - redis-cli into redis"
 
 # ── Cert lifecycle ──────────────────────────────────────────────────────────
 certs:
@@ -123,9 +122,6 @@ logs:
 
 shell-pg:
 	docker compose exec postgres psql -U tefca -d tefca_gateway
-
-shell-redis:
-	docker compose exec redis redis-cli
 
 load-test:
 	@command -v k6 >/dev/null 2>&1 || { echo "::error::k6 not installed (brew install k6)"; exit 1; }

@@ -56,53 +56,15 @@ spring:
     locations: classpath:db/migration
 
   # ---------------------------------------------------------------------------
-  # Spring Session — Redis-backed for Cognito admin sessions.
+  # Spring Session — in-memory MapSessionRepository (see InMemorySessionConfig).
   #
-  # Default in prod is "redis" (REDIS_HOST is always wired by the
-  # gateway-redis ExternalSecret). To temporarily fall back to in-memory
-  # sessions during a Redis incident, set SESSION_STORE_TYPE=none in the
-  # ConfigMap and roll the deployment.
-  #
-  # Stale or partially written session hashes used to crash every request
-  # with `IllegalStateException: creationTime key must not be null`. That is
-  # now neutralized by RedisSessionConfig, which installs a resilient
-  # RedisSessionMapper that drops malformed sessions and forces a fresh one.
+  # Single-instance ECS Fargate task: no cross-pod replication required.
+  # Sessions reset on application restart; OIDC re-login is transparent.
+  # Cookie name remains `SESSION` so SPA, security filters, and logout
+  # handlers are unchanged.
   # ---------------------------------------------------------------------------
   session:
-    store-type: ${SESSION_STORE_TYPE:redis}
     timeout: 24h
-    redis:
-      flush-mode: on-save
-      save-mode: on-set-attribute
-      repository-type: default
-      namespace: tefca:session
-      # ElastiCache disallows CONFIG commands; the default "notify" action
-      # would crash boot with "ERR unknown command 'CONFIG'". `none` skips
-      # the CONFIG SET call entirely. Safe with repository-type=default
-      # since that repo doesn't need keyspace notifications.
-      configure-action: none
-
-  # ---------------------------------------------------------------------------
-  # Redis (ElastiCache) — TLS + AUTH token.
-  # REDIS_HOST and REDIS_AUTH_TOKEN are injected by the gateway-redis and
-  # gateway-ssm ExternalSecrets. Defaults keep the app startable when Redis
-  # is not yet provisioned (SESSION_STORE_TYPE must also not be "redis" then).
-  # ---------------------------------------------------------------------------
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_AUTH_TOKEN:}
-      ssl:
-        enabled: ${REDIS_TLS_ENABLED:true}
-      timeout: 2000ms
-      connect-timeout: 2000ms
-      lettuce:
-        shutdown-timeout: 200ms
-        pool:
-          max-active: 8
-          max-idle: 4
-          min-idle: 1
 
   # OAuth2 — both resource server (API JWT) AND client (admin Cognito SSO)
   security:
@@ -266,13 +228,6 @@ management:
   health:
     db:
       enabled: true
-    redis:
-      # Disabled until Redis session is confirmed reachable from the pod.
-      # Even with spring-session-data-redis on the classpath, Spring Boot
-      # auto-configures a RedisHealthIndicator that pings Redis on every
-      # /actuator/health call. If Redis is unreachable this marks the service
-      # DOWN (503). Set REDIS_HEALTH_ENABLED=true once ElastiCache is live.
-      enabled: ${REDIS_HEALTH_ENABLED:false}
 
 # -----------------------------------------------------------------------------
 # Logging — JSON to stdout for CloudWatch Logs (single log group, 14d retention)
