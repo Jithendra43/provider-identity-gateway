@@ -2,6 +2,8 @@ package chit.tefca.ingress.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -30,6 +32,7 @@ public class Partner {
     @Column(name = "environment", nullable = false, length = 32)
     private String environment;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private String metadata;
 
