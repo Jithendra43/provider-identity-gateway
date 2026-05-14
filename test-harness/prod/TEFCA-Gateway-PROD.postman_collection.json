@@ -1,0 +1,431 @@
+{
+  "info": {
+    "name": "TEFCA Gateway — PROD (provider-identity-gw.c-hit.ai)",
+    "_postman_id": "b3f9c2d4-prod-tefca-gateway-collection",
+    "description": "End-to-end exercise of the production gateway. Two listeners: gw (:443, mTLS partner traffic) and admin (:8444, Cognito session). Configure mTLS in Postman → Settings → Certificates for host provider-identity-gw.c-hit.ai pointing at out/<ORG_ID>.crt + .key. Set adminSessionCookie + partnerJwt collection variables before running.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "gw",     "value": "https://provider-identity-gw.c-hit.ai" },
+    { "key": "admin",  "value": "https://provider-identity-gw.c-hit.ai:8444" },
+    { "key": "adminSessionCookie", "value": "SESSION=PASTE_VALUE_FROM_BROWSER" },
+    { "key": "partnerJwt",         "value": "PASTE_BEARER_JWT" },
+    { "key": "orgId",              "value": "ORG-TEST-001" },
+    { "key": "partnerName",        "value": "Acme QHIN Test" },
+    { "key": "partnerId",          "value": "" },
+    { "key": "targetOrgId",        "value": "ORG-QHIN-001" },
+    { "key": "certificatePem",     "value": "-----BEGIN CERTIFICATE-----\\n...replace with PEM body (\\n-escaped) from out/<ORG_ID>.crt...\\n-----END CERTIFICATE-----\\n" }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "Gateway actuator health",
+          "request": { "method": "GET", "url": "{{gw}}/actuator/health" }
+        },
+        {
+          "name": "Admin actuator health",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/actuator/health",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "1. Admin — Partner Onboarding",
+      "item": [
+        {
+          "name": "List partners",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/ingress/api/v1/admin/partners",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "List ACTIVE partners",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/ingress/api/v1/admin/partners?status=ACTIVE",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Onboard partner (saves {{partnerId}})",
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "const j = pm.response.json();",
+              "if (j && j.partnerId) pm.collectionVariables.set('partnerId', j.partnerId);",
+              "pm.test('201 Created', () => pm.expect(pm.response.code).to.eql(201));",
+              "pm.test('partnerId returned', () => pm.expect(j.partnerId).to.match(/^PARTNER-/));"
+            ]}
+          }],
+          "request": {
+            "method": "POST",
+            "url": "{{admin}}/api/admin/proxy/ingress/api/v1/admin/partners",
+            "header": [
+              { "key": "Cookie",       "value": "{{adminSessionCookie}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"orgId\": \"{{orgId}}\",\n  \"name\": \"{{partnerName}}\",\n  \"environment\": \"TEST\",\n  \"contactEmail\": \"ops@{{orgId}}.test\",\n  \"certificatePem\": \"{{certificatePem}}\",\n  \"allowedModalities\": [\"XCPD\",\"XCA_QUERY\",\"XCA_RETRIEVE\",\"XDR\"],\n  \"allowedScopes\": [\"tefca.read\",\"tefca.write\"],\n  \"requestsPerMinute\": 100\n}" }
+          }
+        },
+        {
+          "name": "Get partner by id",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/ingress/api/v1/admin/partners/{{partnerId}}",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Offboard (suspend) partner — DELETE 204",
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('204 No Content', () => pm.expect(pm.response.code).to.eql(204));"
+            ]}
+          }],
+          "request": {
+            "method": "DELETE",
+            "url": "{{admin}}/api/admin/proxy/ingress/api/v1/admin/partners/{{partnerId}}",
+            "header": [
+              { "key": "Cookie",       "value": "{{adminSessionCookie}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Postman e2e — offboard test partner\"\n}" }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "2. Admin — Directory",
+      "item": [
+        {
+          "name": "List organizations",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/directory/api/v1/directory/organizations",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Get org by id",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/directory/api/v1/directory/organizations/{{targetOrgId}}",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Endpoints for org",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/directory/api/v1/directory/organizations/{{targetOrgId}}/endpoints",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "List nodes",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/directory/api/v1/directory/nodes",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Trigger directory sync",
+          "request": {
+            "method": "POST",
+            "url": "{{admin}}/api/admin/proxy/directory/api/v1/admin/directory/sync",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "3. Admin — Policy CRUD",
+      "item": [
+        {
+          "name": "List rules",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/policy/api/v1/admin/policy/rules",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Audit entries (paged)",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/policy/api/v1/admin/policy/audit-entries?page=0&size=20",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Create rule (saves {{demoRuleId}})",
+          "event": [{
+            "listen": "prerequest",
+            "script": { "exec": [
+              "pm.collectionVariables.set('demoRuleId', 'DEMO-PROD-' + Date.now());"
+            ]}
+          }],
+          "request": {
+            "method": "POST",
+            "url": "{{admin}}/api/admin/proxy/policy/api/v1/admin/policy/rules",
+            "header": [
+              { "key": "Cookie",       "value": "{{adminSessionCookie}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"ruleId\": \"{{demoRuleId}}\",\n  \"ruleName\": \"PROD smoke: deny test\",\n  \"category\": \"OPERATIONAL\",\n  \"description\": \"Created from Postman PROD smoke.\",\n  \"ruleExpression\": \"request.operation == 'PATIENT_DISCOVERY' && request.targetOrgId == 'ORG-NEVER' -> DENY (operational:smoke)\",\n  \"priority\": 999,\n  \"active\": false,\n  \"changedBy\": \"postman@prod\",\n  \"changeReason\": \"Smoke test create\"\n}" }
+          }
+        },
+        {
+          "name": "Delete rule",
+          "request": {
+            "method": "DELETE",
+            "url": "{{admin}}/api/admin/proxy/policy/api/v1/admin/policy/rules/{{demoRuleId}}",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "4. Partner — TEFCA traffic (mTLS + Bearer)",
+      "item": [
+        {
+          "name": "Mint partner test JWT (sets {{partnerJwt}})",
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('200 OK', () => pm.expect(pm.response.code).to.eql(200));",
+              "const j = pm.response.json();",
+              "if (j && j.access_token) {",
+              "  pm.collectionVariables.set('partnerJwt', j.access_token);",
+              "  console.log('partnerJwt set; expires_in=' + j.expires_in + 's org_id=' + j.org_id);",
+              "}",
+              "pm.test('access_token returned', () => pm.expect(j.access_token).to.be.a('string'));"
+            ]}
+          }],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{admin}}/api/admin/proxy/ingress/oauth2/token?client_id={{orgId}}&org_id={{orgId}}&node_id=NODE-{{orgId}}-001&roles=PROVIDER&scope=tefca.read,tefca.write&ttl_seconds=3600",
+              "host": ["{{admin}}"],
+              "path": ["api","admin","proxy","ingress","oauth2","token"],
+              "query": [
+                { "key": "client_id",   "value": "{{orgId}}" },
+                { "key": "org_id",      "value": "{{orgId}}" },
+                { "key": "node_id",     "value": "NODE-{{orgId}}-001" },
+                { "key": "roles",       "value": "PROVIDER" },
+                { "key": "scope",       "value": "tefca.read,tefca.write" },
+                { "key": "ttl_seconds", "value": "3600" }
+              ]
+            },
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }],
+            "description": "Mint a short-lived RS256 JWT via the in-app test IdP (MockIdpController). Test envs only. Requires tefca.test-idp.token-endpoint-enabled=true on the gateway. The minted token's iss/aud match the gateway's OAUTH2_ISSUER_URI/OAUTH2_AUDIENCE, so it validates as a real partner token. Run this once before any TEFCA request below."
+          }
+        },
+        {
+          "name": "Patient Discovery — Jane Doe",
+          "event": [{
+            "listen": "prerequest",
+            "script": { "exec": [
+              "pm.collectionVariables.set('cid', 'pm-pd-' + Date.now());"
+            ]}
+          }],
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "{{cid}}" },
+              { "key": "X-Idempotency-Key", "value": "{{cid}}-idem" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — John Smith",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-smith-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-smith-prod" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"John\",\n  \"patientLastName\": \"Smith\",\n  \"patientDateOfBirth\": \"1975-07-04\",\n  \"patientGender\": \"M\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — no-match",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-nomatch-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-nomatch-prod" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Nobody\",\n  \"patientLastName\": \"Findme\",\n  \"patientDateOfBirth\": \"1900-01-01\",\n  \"patientGender\": \"U\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — MARKETING (expect DENY)",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization",         "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",          "value": "application/json" },
+              { "key": "X-Correlation-ID",      "value": "pm-pd-mkt-prod" },
+              { "key": "X-Idempotency-Key",     "value": "idem-pm-pd-mkt-prod" },
+              { "key": "X-Tefca-Data-Classes",  "value": "MARKETING" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"HEALTHCARE_OPERATIONS\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — Breakglass (EMERGENCY)",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-bg-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-bg-prod" },
+              { "key": "X-Breakglass",      "value": "true" },
+              { "key": "X-Breakglass-Justification", "value": "Unconscious trauma patient — TEFCA SOP §6.4" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"EMERGENCY\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Document Query — C-CDA",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/document-query",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-dq-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-dq-prod" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientId\": \"patient-doe-001\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\",\n  \"documentType\": \"C-CDA\",\n  \"dateFrom\": \"2024-01-01\",\n  \"dateTo\": \"2026-12-31\"\n}" }
+          }
+        },
+        {
+          "name": "Document Retrieve — fetch CCD",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/document-retrieve",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-dr-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-dr-prod" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"documentId\": \"doc-001\",\n  \"repositoryId\": \"REPO-CW-001\",\n  \"patientId\": \"patient-doe-001\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Message Delivery — DIRECT",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/message-delivery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-md-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-md-prod" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"targetOrgId\": \"ORG-SUB-001\",\n  \"messageType\": \"DIRECT\",\n  \"patientId\": \"patient-doe-001\",\n  \"messageBody\": {\n    \"subject\": \"Discharge summary — Jane Doe\",\n    \"body\": \"Patient discharged 2026-05-13. Follow-up in 7d.\",\n    \"attachments\": []\n  }\n}" }
+          }
+        },
+        {
+          "name": "Message Delivery — Public Health (ELR)",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/message-delivery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-md-ph-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-md-ph-prod" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"PUBLIC_HEALTH\",\n  \"targetOrgId\": \"ORG-PUB-001\",\n  \"messageType\": \"ELR\",\n  \"messageBody\": {\n    \"reportType\": \"reportable_condition\",\n    \"loincCode\": \"94310-0\",\n    \"observation\": \"SARS-CoV-2 RNA, positive\"\n  }\n}" }
+          }
+        },
+        {
+          "name": "Replay — same correlation+idempotency (REPLAY_DETECTED)",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/patient-discovery",
+            "header": [
+              { "key": "Authorization",     "value": "Bearer {{partnerJwt}}" },
+              { "key": "Content-Type",      "value": "application/json" },
+              { "key": "X-Correlation-ID",  "value": "pm-pd-replay-prod" },
+              { "key": "X-Idempotency-Key", "value": "idem-pm-pd-replay-prod" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Patient Discovery — no Bearer (expect 401)",
+          "request": {
+            "method": "POST",
+            "url": "{{gw}}/api/v1/tefca/patient-discovery",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"exchangePurpose\": \"TREATMENT\",\n  \"patientFirstName\": \"Jane\",\n  \"patientLastName\": \"Doe\",\n  \"patientDateOfBirth\": \"1980-01-15\",\n  \"patientGender\": \"F\",\n  \"patientIdSystem\": \"2.16.840.1.113883.4.1\",\n  \"targetOrgId\": \"{{targetOrgId}}\"\n}" }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "5. Observability",
+      "item": [
+        {
+          "name": "Aggregated time-series",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/ingress/api/v1/admin/observability/timeseries",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Audit events (ingress)",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/ingress/api/v1/admin/audit/events?page=0&size=20",
+            "header": [{ "key": "Cookie", "value": "{{adminSessionCookie}}" }]
+          }
+        },
+        {
+          "name": "Prometheus (text)",
+          "request": {
+            "method": "GET",
+            "url": "{{admin}}/api/admin/proxy/ingress/actuator/prometheus",
+            "header": [
+              { "key": "Cookie", "value": "{{adminSessionCookie}}" },
+              { "key": "Accept", "value": "text/plain" }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
