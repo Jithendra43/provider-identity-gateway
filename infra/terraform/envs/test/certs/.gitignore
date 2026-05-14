@@ -1,0 +1,5 @@
+# Local test-CA material — DO NOT COMMIT
+e2e-test-ca.pem
+e2e-test-ca.crt
+e2e-test-ca.key
+*.key

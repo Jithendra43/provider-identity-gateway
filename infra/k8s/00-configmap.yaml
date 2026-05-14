@@ -66,3 +66,18 @@ data:
 
   # Logging verbosity for auth troubleshooting.
   SECURITY_LOG_LEVEL: "WARN"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # In-app test IdP (MockIdpController @ /oauth2/token + /oauth2/.well-known)
+  # ─────────────────────────────────────────────────────────────────────────
+  # The /oauth2/.well-known/jwks.json endpoint is ALWAYS published — it backs
+  # the InternalTokenIssuer used during PA forwarding. Only the /token mint
+  # endpoint is gated.
+  #
+  # In real prod this MUST stay "false" (no test-only mint endpoint exposed).
+  # Override to "true" in the dedicated test env so the e2e harness can
+  # mint partner JWTs via /api/admin/proxy/ingress/oauth2/token.
+  # See: services/ingress-auth-service/src/main/java/chit/tefca/ingress/mockidp/MockIdpController.java
+  TEFCA_TEST_IDP_TOKEN_ENDPOINT_ENABLED: "${TEFCA_TEST_IDP_TOKEN_ENDPOINT_ENABLED:-false}"
+  TEFCA_TEST_IDP_ISSUER_URI: "${TEFCA_TEST_IDP_ISSUER_URI:-${OAUTH2_ISSUER_URI}}"
+  TEFCA_TEST_IDP_AUDIENCE:   "${TEFCA_TEST_IDP_AUDIENCE:-${OAUTH2_AUDIENCE}}"
